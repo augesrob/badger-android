@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#0F0F0F</color>
+    <string name="app_name">Badger Trucks</string>
+    <style name="Theme.BadgerTrucks" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#FF0F0F0F</item>
+        <item name="android:navigationBarColor">#FF0F0F0F</item>
+        <item name="android:windowBackground">#FF0F0F0F</item>
+    </style>
+</resources>

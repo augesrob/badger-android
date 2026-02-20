@@ -76,6 +76,14 @@ object BadgerRepo {
             .select()
             .decodeList()
 
+    suspend fun addToMovement(truckNumber: String, location: String?) {
+        client.postgrest["live_movement"]
+            .insert(buildJsonObject {
+                put("truck_number", truckNumber)
+                if (location != null) put("current_location", location)
+            })
+    }
+
     suspend fun updateMovementLocation(id: Int, location: String?) {
         client.postgrest["live_movement"]
             .update({ set("current_location", location) }) { filter { eq("id", id) } }
