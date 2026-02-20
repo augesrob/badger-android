@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BadgerTheme {
-                BadgerApp()
+                BadgerMainApp()
             }
         }
     }
@@ -44,7 +44,7 @@ val screens = listOf(Screen.PrintRoom, Screen.PreShift, Screen.Movement, Screen.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BadgerApp() {
+fun BadgerMainApp() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
