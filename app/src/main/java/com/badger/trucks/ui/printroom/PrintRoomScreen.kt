@@ -149,7 +149,9 @@ fun PrintRoomScreen() {
         items(doors) { door ->
             DoorCard(
                 door = door,
-                doorEntries = entries.filter { it.loadingDoorId == door.id },
+                doorEntries = entries
+                    .filter { it.loadingDoorId == door.id }
+                    .sortedWith(compareBy({ it.batchNumber }, { it.rowOrder })),
                 onAddClick = { addDialogDoor = door },
                 onEntryClick = { editDialogEntry = it }
             )
@@ -203,22 +205,21 @@ fun DoorCard(
             Text("NOTES", Modifier.weight(1f), color = Amber500, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
 
-        var currentBatch = 0
         val nonEndEntries = doorEntries.filter { !it.isEndMarker }
 
         if (nonEndEntries.isEmpty()) {
             Text("No trucks — tap + to add", modifier = Modifier.padding(16.dp), color = MutedText, fontSize = 12.sp)
         }
 
-        nonEndEntries.forEach { entry ->
-            if (entry.batchNumber != currentBatch && currentBatch > 0) {
+        nonEndEntries.forEachIndexed { index, entry ->
+            // Show batch divider between different batches (not before the first entry)
+            if (index > 0 && entry.batchNumber != nonEndEntries[index - 1].batchNumber) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.Center) {
                     Divider(Modifier.weight(1f).padding(top = 8.dp), color = Amber500.copy(alpha = 0.3f))
                     Text(" Next Wave ", color = Amber500.copy(alpha = 0.4f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
                     Divider(Modifier.weight(1f).padding(top = 8.dp), color = Amber500.copy(alpha = 0.3f))
                 }
             }
-            currentBatch = entry.batchNumber
 
             Row(
                 modifier = Modifier
