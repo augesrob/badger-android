@@ -39,7 +39,7 @@ data class PrintroomEntry(
     @SerialName("row_order") val rowOrder: Int = 0,
     @SerialName("route_info") val routeInfo: String? = null,
     @SerialName("truck_number") val truckNumber: String? = null,
-    val pods: Int = 0,
+    val pods: Int? = 0,
     @SerialName("pallets_trays") val palletsTrays: Int? = 0,
     val notes: String? = null,
     @SerialName("is_end_marker") val isEndMarker: Boolean = false,

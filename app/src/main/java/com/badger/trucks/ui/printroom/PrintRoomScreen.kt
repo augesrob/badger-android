@@ -235,7 +235,7 @@ fun DoorCard(
                     fontSize = 14.sp
                 )
                 Text(entry.routeInfo ?: "", Modifier.width(36.dp), color = MutedText, fontSize = 11.sp, textAlign = TextAlign.Center)
-                Text(if (entry.pods > 0) entry.pods.toString() else "", Modifier.width(38.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
+                Text(if ((entry.pods ?: 0) > 0) entry.pods.toString() else "", Modifier.width(38.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
                 Text(if ((entry.palletsTrays ?: 0) > 0) entry.palletsTrays.toString() else "", Modifier.width(38.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
                 Text(entry.notes ?: "", Modifier.weight(1f), color = MutedText, fontSize = 10.sp)
             }
@@ -381,7 +381,7 @@ fun EditTruckDialog(
 ) {
     var truckNum by remember { mutableStateOf(entry.truckNumber ?: "") }
     var routeInfo by remember { mutableStateOf(entry.routeInfo ?: "") }
-    var pods by remember { mutableStateOf(if (entry.pods > 0) entry.pods.toString() else "") }
+    var pods by remember { mutableStateOf(if ((entry.pods ?: 0) > 0) entry.pods.toString() else "") }
     var pallets by remember { mutableStateOf(if ((entry.palletsTrays ?: 0) > 0) entry.palletsTrays.toString() else "") }
     var notes by remember { mutableStateOf(entry.notes ?: "") }
     var batch by remember { mutableStateOf(entry.batchNumber.toString()) }

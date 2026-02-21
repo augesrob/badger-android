@@ -106,7 +106,7 @@ fun MovementScreen() {
                 route = pe.routeInfo ?: "",
                 batch = pe.batchNumber,
                 order = orderIdx++,
-                pods = pe.pods,
+                pods = pe.pods ?: 0,
                 pallets = pe.palletsTrays ?: 0,
                 notes = pe.notes ?: ""
             )
@@ -484,8 +484,7 @@ fun DoorSection(
                 }
 
                 Text(if ((di?.pods ?: 0) > 0) di?.pods.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
-                Text(if ((di?.pallets ?: 0) > 0) di?.pallets.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
-            }
+                Text(if ((di?.pallets ?: 0) > 0) di?.pallets.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)            }
 
             if (idx < trucks.size - 1) Divider(color = DarkBorder.copy(alpha = 0.2f))
         }
