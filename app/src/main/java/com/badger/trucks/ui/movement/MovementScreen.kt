@@ -95,17 +95,17 @@ fun MovementScreen() {
         return
     }
 
-    // Build truck→door mapping from printroom
+    // Build truck→door mapping from printroom (sorted so order is deterministic)
     val truckToDoor = mutableMapOf<String, DoorInfo>()
-    var orderIdx = 0
-    printroom.forEach { pe ->
+    val sortedPrintroom = printroom.sortedWith(compareBy({ it.loadingDoorId }, { it.batchNumber }, { it.rowOrder }))
+    sortedPrintroom.forEachIndexed { orderIdx, pe ->
         if (pe.truckNumber != null && pe.truckNumber != "end" && !pe.isEndMarker) {
             val doorName = pe.loadingDoor?.doorName ?: "?"
             truckToDoor[pe.truckNumber] = DoorInfo(
                 doorName = doorName,
                 route = pe.routeInfo ?: "",
                 batch = pe.batchNumber,
-                order = orderIdx++,
+                order = orderIdx,
                 pods = pe.pods ?: 0,
                 pallets = pe.palletsTrays ?: 0,
                 notes = pe.notes ?: ""
@@ -140,6 +140,8 @@ fun MovementScreen() {
         val di = truckToDoor[t.truckNumber] ?: return@forEach
         doorGroups.getOrPut(di.doorName) { mutableListOf() }.add(t)
     }
+    // Sort trucks within each door by batch then row order
+    doorGroups.replaceAll { _, list -> list.sortedWith(compareBy({ truckToDoor[it.truckNumber]?.batch }, { truckToDoor[it.truckNumber]?.order })).toMutableList() }
 
     val sortedDoors = doors.map { it.doorName }.filter { doorGroups.containsKey(it) }
 
