@@ -300,13 +300,10 @@ fun TractorSection() {
 fun TractorDialog(tractor: Tractor, trailerList: List<TrailerItem>, onDismiss: () -> Unit, onSave: (Tractor) -> Unit) {
     var driverName by remember { mutableStateOf(tractor.driverName ?: "") }
     var driverCell by remember { mutableStateOf(tractor.driverCell ?: "") }
-    var t1 by remember { mutableStateOf(tractor.trailer1Id?.toString() ?: "") }
-    var t2 by remember { mutableStateOf(tractor.trailer2Id?.toString() ?: "") }
-    var t3 by remember { mutableStateOf(tractor.trailer3Id?.toString() ?: "") }
-    var t4 by remember { mutableStateOf(tractor.trailer4Id?.toString() ?: "") }
-
-    // Helper: find trailer id by number string
-    fun findId(numStr: String): Int? = trailerList.find { it.trailerNumber == numStr.trim() }?.id
+    var t1Id by remember { mutableStateOf(tractor.trailer1Id) }
+    var t2Id by remember { mutableStateOf(tractor.trailer2Id) }
+    var t3Id by remember { mutableStateOf(tractor.trailer3Id) }
+    var t4Id by remember { mutableStateOf(tractor.trailer4Id) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
@@ -319,34 +316,121 @@ fun TractorDialog(tractor: Tractor, trailerList: List<TrailerItem>, onDismiss: (
                 OutlinedTextField(value = driverName, onValueChange = { driverName = it }, label = { Text("Driver Name", color = MutedText) }, modifier = Modifier.fillMaxWidth(), singleLine = true, colors = fieldColors())
                 OutlinedTextField(value = driverCell, onValueChange = { driverCell = it }, label = { Text("Driver Cell", color = MutedText) }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true, colors = fieldColors())
 
-                Text("Trailer Slots (enter trailer numbers)", color = MutedText, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = t1, onValueChange = { t1 = it }, label = { Text("Slot 1", color = Green400, fontSize = 10.sp) }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, colors = fieldColors())
-                    OutlinedTextField(value = t2, onValueChange = { t2 = it }, label = { Text("Slot 2", color = Blue400, fontSize = 10.sp) }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, colors = fieldColors())
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = t3, onValueChange = { t3 = it }, label = { Text("Slot 3", color = Purple400, fontSize = 10.sp) }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, colors = fieldColors())
-                    OutlinedTextField(value = t4, onValueChange = { t4 = it }, label = { Text("Slot 4", color = Pink400, fontSize = 10.sp) }, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, colors = fieldColors())
-                }
-
-                if (trailerList.isNotEmpty()) {
-                    Text("Available trailers: ${trailerList.take(8).joinToString(", ") { it.trailerNumber }}${if (trailerList.size > 8) "..." else ""}", color = MutedText, fontSize = 10.sp)
-                }
+                Text("Trailer Slots", color = MutedText, fontSize = 12.sp)
+                TrailerSlotPicker("${tractor.truckNumber}-1", t1Id, trailerList, Green400) { t1Id = it }
+                TrailerSlotPicker("${tractor.truckNumber}-2", t2Id, trailerList, Blue400) { t2Id = it }
+                TrailerSlotPicker("${tractor.truckNumber}-3", t3Id, trailerList, Purple400) { t3Id = it }
+                TrailerSlotPicker("${tractor.truckNumber}-4", t4Id, trailerList, Pink400) { t4Id = it }
 
                 Button(
                     onClick = {
                         onSave(tractor.copy(
                             driverName = driverName.ifBlank { null },
                             driverCell = driverCell.ifBlank { null },
-                            trailer1Id = findId(t1),
-                            trailer2Id = findId(t2),
-                            trailer3Id = findId(t3),
-                            trailer4Id = findId(t4)
+                            trailer1Id = t1Id,
+                            trailer2Id = t2Id,
+                            trailer3Id = t3Id,
+                            trailer4Id = t4Id
                         ))
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black)
                 ) { Text("Save Changes", fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrailerSlotPicker(
+    label: String,
+    currentId: Int?,
+    trailerList: List<TrailerItem>,
+    accentColor: Color,
+    onSelect: (Int?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var search by remember { mutableStateOf("") }
+    val current = trailerList.find { it.id == currentId }
+    val filtered = trailerList.filter {
+        search.isBlank() || it.trailerNumber.contains(search, ignoreCase = true)
+    }
+
+    Column {
+        // Display row — tap to open
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(DarkCard)
+                .clickable { expanded = true; search = "" }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(8.dp).background(accentColor, RoundedCornerShape(2.dp)))
+                Text(label, color = MutedText, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                current?.trailerNumber ?: "— None —",
+                color = if (current != null) accentColor else MutedText,
+                fontSize = 13.sp,
+                fontWeight = if (current != null) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+
+        // Dropdown
+        if (expanded) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                shape = RoundedCornerShape(10.dp),
+                elevation = CardDefaults.cardElevation(8.dp)
+            ) {
+                Column(Modifier.padding(8.dp)) {
+                    OutlinedTextField(
+                        value = search,
+                        onValueChange = { search = it },
+                        placeholder = { Text("Search trailer #", color = MutedText, fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = fieldColors()
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // Clear option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onSelect(null); expanded = false }
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Text("— None —", color = MutedText, fontSize = 13.sp)
+                    }
+                    Divider(color = DarkBorder)
+                    // Trailer list (max visible height via scroll)
+                    filtered.take(8).forEach { trailer ->
+                        val isSelected = trailer.id == currentId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSelected) accentColor.copy(alpha = 0.15f) else Color.Transparent)
+                                .clickable { onSelect(trailer.id); expanded = false }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(trailer.trailerNumber, color = if (isSelected) accentColor else LightText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 14.sp)
+                            if (isSelected) Text("✓", color = accentColor, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                    if (filtered.size > 8) {
+                        Text("  +${filtered.size - 8} more — type to filter", color = MutedText, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+                    }
+                }
             }
         }
     }

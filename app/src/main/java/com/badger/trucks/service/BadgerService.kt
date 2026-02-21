@@ -30,7 +30,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tts: TextToSpeech? = null
     private var ttsReady = false
-    private val knownStatuses = mutableMapOf<String, String?>()
+    private val knownStatuses = mutableMapOf<String, String?>()     // truckNumber -> statusName
+    private val knownDoorStatuses = mutableMapOf<String, String?>() // doorName -> doorStatus
 
     override fun onCreate() {
         super.onCreate()
@@ -84,7 +85,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 val initial = BadgerRepo.getLiveMovement()
                 initial.forEach { knownStatuses[it.truckNumber] = it.statusName }
 
+                val initialDoors = BadgerRepo.getLoadingDoors()
+                initialDoors.forEach { knownDoorStatuses[it.doorName] = it.doorStatus }
+
                 val channel = BadgerRepo.realtimeChannel("badger-service-realtime")
+
+                // Watch truck status changes
                 channel.postgresChangeFlow<PostgresAction>("public") {
                     table = "live_movement"
                 }.onEach {
@@ -95,12 +101,32 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                             val curr = truck.statusName
                             if (prev != null && curr != null && prev != curr) {
                                 speak("Truck ${truck.truckNumber}, ${curr}")
-                                Log.d("BadgerService", "TTS: Truck ${truck.truckNumber} $prev -> $curr")
+                                Log.d("BadgerService", "TTS truck: ${truck.truckNumber} $prev -> $curr")
                             }
                             knownStatuses[truck.truckNumber] = curr
                         }
                     } catch (e: Exception) {
-                        Log.e("BadgerService", "Refresh error: ${e.message}")
+                        Log.e("BadgerService", "Truck refresh error: ${e.message}")
+                    }
+                }.launchIn(scope)
+
+                // Watch door status changes
+                channel.postgresChangeFlow<PostgresAction>("public") {
+                    table = "loading_doors"
+                }.onEach {
+                    try {
+                        val updatedDoors = BadgerRepo.getLoadingDoors()
+                        updatedDoors.forEach { door ->
+                            val prev = knownDoorStatuses[door.doorName]
+                            val curr = door.doorStatus
+                            if (prev != null && curr != prev && curr.isNotBlank()) {
+                                speak("Door ${door.doorName}, ${curr}")
+                                Log.d("BadgerService", "TTS door: ${door.doorName} $prev -> $curr")
+                            }
+                            knownDoorStatuses[door.doorName] = curr
+                        }
+                    } catch (e: Exception) {
+                        Log.e("BadgerService", "Door refresh error: ${e.message}")
                     }
                 }.launchIn(scope)
 

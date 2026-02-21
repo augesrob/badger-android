@@ -78,7 +78,13 @@ fun PrintRoomScreen() {
             onSave = { entry ->
                 scope.launch {
                     try {
-                        BadgerRepo.upsertPrintroomEntry(entry)
+                        // Calculate next row_order = max existing row_order for this door+batch + 1
+                        val doorEntries = entries.filter {
+                            it.loadingDoorId == door.id && it.batchNumber == entry.batchNumber
+                        }
+                        val nextRowOrder = (doorEntries.maxOfOrNull { it.rowOrder } ?: 0) + 1
+                        val entryWithOrder = entry.copy(rowOrder = nextRowOrder)
+                        BadgerRepo.upsertPrintroomEntry(entryWithOrder)
                         // Auto-add to live_movement if not there yet
                         val existing = BadgerRepo.getLiveMovement().find { it.truckNumber == entry.truckNumber }
                         if (existing == null && entry.truckNumber != null) {
