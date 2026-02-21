@@ -1,9 +1,14 @@
 package com.badger.trucks
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -11,10 +16,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.ui.printroom.PrintRoomScreen
 import com.badger.trucks.ui.preshift.PreShiftScreen
@@ -22,13 +29,33 @@ import com.badger.trucks.ui.movement.MovementScreen
 import com.badger.trucks.ui.admin.AdminScreen
 
 class MainActivity : ComponentActivity() {
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* permission result — service already started */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        startBadgerService()
         setContent {
             BadgerTheme {
                 BadgerMainApp()
             }
+        }
+    }
+
+    private fun startBadgerService() {
+        // Request notification permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (!BadgerService.isRunning) {
+            val intent = Intent(this, BadgerService::class.java)
+            ContextCompat.startForegroundService(this, intent)
         }
     }
 }

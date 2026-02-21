@@ -30,6 +30,9 @@ import com.badger.trucks.data.*
 import com.badger.trucks.ui.theme.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
+import com.badger.trucks.service.BadgerService
 import kotlinx.coroutines.launch
 
 data class DoorInfo(
@@ -55,6 +58,8 @@ fun MovementScreen() {
     var search by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("all") }
     var loading by remember { mutableStateOf(true) }
+    var ttsOn by remember { mutableStateOf(BadgerService.ttsEnabled) }
+    val context = LocalContext.current
 
     // Dialog state
     var statusDialogTruck by remember { mutableStateOf<LiveMovement?>(null) }
@@ -189,9 +194,32 @@ fun MovementScreen() {
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         item {
-            Text("🚚 Live Movement", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = LightText)
-            Spacer(Modifier.height(4.dp))
-            Text("${filtered.size} trucks • Tap status to change", color = MutedText, fontSize = 13.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("🚚 Live Movement", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = LightText)
+                    Text("${filtered.size} trucks • Tap status to change", color = MutedText, fontSize = 13.sp)
+                }
+                // TTS Toggle button
+                val ttsColor = if (ttsOn) Amber500 else MutedText
+                OutlinedButton(
+                    onClick = {
+                        context.startService(
+                            Intent(context, BadgerService::class.java).apply {
+                                action = BadgerService.ACTION_TOGGLE_TTS
+                            }
+                        )
+                        ttsOn = !ttsOn
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ttsColor),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ttsColor)
+                ) {
+                    Text(if (ttsOn) "🔊 TTS" else "🔇 TTS", fontSize = 12.sp)
+                }
+            }
             Spacer(Modifier.height(8.dp))
 
             // Status filter chips
