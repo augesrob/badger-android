@@ -151,6 +151,19 @@ object BadgerRepo {
     }
 
     // ===== TRACTORS =====
+    suspend fun updateTractor(id: Int, tractor: Tractor) {
+        client.postgrest["tractors"]
+            .update({
+                set("driver_name", tractor.driverName)
+                set("driver_cell", tractor.driverCell)
+                set("trailer_1_id", tractor.trailer1Id)
+                set("trailer_2_id", tractor.trailer2Id)
+                set("trailer_3_id", tractor.trailer3Id)
+                set("trailer_4_id", tractor.trailer4Id)
+                set("notes", tractor.notes)
+            }) { filter { eq("id", id) } }
+    }
+
     suspend fun getTractors(): List<Tractor> =
         client.postgrest["tractors"]
             .select(Columns.raw("*, trailer_1:trailer_list!tractors_trailer_1_id_fkey(*), trailer_2:trailer_list!tractors_trailer_2_id_fkey(*), trailer_3:trailer_list!tractors_trailer_3_id_fkey(*), trailer_4:trailer_list!tractors_trailer_4_id_fkey(*)")) {

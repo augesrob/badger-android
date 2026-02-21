@@ -42,13 +42,20 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = "1.5.11" // For Kotlin 1.9.23
+    }
+
+    packaging {
+        resources.excludes.add("META-INF/services/io.ktor.client.engine.HttpClientEngine")
     }
 }
 
 dependencies {
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    // Core
+    implementation("androidx.core:core-ktx:1.12.0")
+
+    // Compose
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.02") // For compiler 1.5.11
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -59,24 +66,21 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Supabase
-    val supabaseVersion = "2.1.4"
+    // Supabase & Ktor - Explicit versions
+    val supabaseVersion = "2.5.0"
+    implementation("io.github.jan-tennert.supabase:gotrue-kt:$supabaseVersion")
     implementation("io.github.jan-tennert.supabase:postgrest-kt:$supabaseVersion")
     implementation("io.github.jan-tennert.supabase:realtime-kt:$supabaseVersion")
-
-    // Ktor (HTTP client for Supabase)
+    
     val ktorVersion = "2.3.7"
-    implementation("io.ktor:ktor-client-android:$ktorVersion")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
-    implementation("io.ktor:ktor-utils:$ktorVersion")
+    implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
-    // Kotlinx
+    // Kotlinx Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-
-    // Core
-    implementation("androidx.core:core-ktx:1.12.0")
-
-    debugImplementation("androidx.compose.ui:ui-tooling")
 }

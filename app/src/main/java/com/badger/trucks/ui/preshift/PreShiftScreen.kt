@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -13,7 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -76,14 +79,14 @@ fun PreShiftScreen() {
             Text("Truck Order – Door Placement", color = MutedText, fontSize = 13.sp)
             Spacer(Modifier.height(12.dp))
 
-            // Header
+            // Header row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(DarkCard, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
             ) {
-                Text("DOOR", Modifier.width(50.dp), color = Amber500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("DOOR", Modifier.width(48.dp), color = Amber500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Text("IN FRONT", Modifier.weight(1f), color = Amber500, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Text("IN BACK", Modifier.weight(1f), color = Amber500, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
@@ -123,13 +126,12 @@ fun StagingRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(bgColor)
-            .padding(horizontal = 4.dp),
+            .background(bgColor),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             door.doorLabel,
-            modifier = Modifier.width(50.dp).padding(start = 8.dp),
+            modifier = Modifier.width(48.dp).padding(start = 8.dp),
             fontWeight = FontWeight.Bold,
             color = MutedText,
             fontSize = 13.sp,
@@ -168,31 +170,35 @@ fun StagingCell(
 
     Box(
         modifier = modifier
-            .background(if (active) Amber500.copy(alpha = 0.15f) else Color.Transparent)
-            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .height(40.dp)
+            .background(if (active) Amber500.copy(alpha = 0.15f) else Color.Transparent),
+        contentAlignment = Alignment.Center
     ) {
-        OutlinedTextField(
+        BasicTextField(
             value = text,
             onValueChange = { text = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp)
+                .padding(horizontal = 4.dp)
                 .onFocusChanged { if (!it.isFocused && text != value) onSave(text) },
-            textStyle = LocalTextStyle.current.copy(
+            textStyle = TextStyle(
                 color = color,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
                 textAlign = TextAlign.Center
             ),
-            placeholder = { Text("—", Modifier.fillMaxWidth(), textAlign = TextAlign.Center, color = MutedText.copy(alpha = 0.3f)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
             singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Amber500,
-                unfocusedBorderColor = Color.Transparent,
-                cursorColor = Amber500
-            )
+            cursorBrush = SolidColor(Amber500),
+            decorationBox = { inner ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    if (text.isEmpty()) {
+                        Text("—", color = MutedText.copy(alpha = 0.3f), fontSize = 15.sp, textAlign = TextAlign.Center)
+                    }
+                    inner()
+                }
+            }
         )
     }
 }

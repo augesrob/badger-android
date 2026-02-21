@@ -1,9 +1,0 @@
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\ui\theme\Theme.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\data\BadgerRepo.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\data\Models.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\ui\admin\AdminScreen.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\BadgerApp.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\ui\preshift\PreShiftScreen.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\ui\printroom\PrintRoomScreen.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\ui\movement\MovementScreen.kt
-C:\Users\auges\StudioProjects\badger-android\app\src\main\java\com\badger\trucks\MainActivity.kt
