@@ -107,7 +107,7 @@ fun MovementScreen() {
                 batch = pe.batchNumber,
                 order = orderIdx++,
                 pods = pe.pods,
-                pallets = pe.palletsTrays,
+                pallets = pe.palletsTrays ?: 0,
                 notes = pe.notes ?: ""
             )
         }

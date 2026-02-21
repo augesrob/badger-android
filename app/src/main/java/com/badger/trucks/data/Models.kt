@@ -40,7 +40,7 @@ data class PrintroomEntry(
     @SerialName("route_info") val routeInfo: String? = null,
     @SerialName("truck_number") val truckNumber: String? = null,
     val pods: Int = 0,
-    @SerialName("pallets_trays") val palletsTrays: Int = 0,
+    @SerialName("pallets_trays") val palletsTrays: Int? = 0,
     val notes: String? = null,
     @SerialName("is_end_marker") val isEndMarker: Boolean = false,
     // Joined
@@ -58,6 +58,12 @@ data class StagingDoor(
 )
 
 @Serializable
+data class LiveMovementStatus(
+    @SerialName("status_name") val statusName: String? = null,
+    @SerialName("status_color") val statusColor: String? = null
+)
+
+@Serializable
 data class LiveMovement(
     val id: Int = 0,
     @SerialName("truck_number") val truckNumber: String,
@@ -68,10 +74,12 @@ data class LiveMovement(
     @SerialName("loading_door_id") val loadingDoorId: Int? = null,
     @SerialName("last_updated") val lastUpdated: String? = null,
     // Joined
-    @SerialName("status_name") val statusName: String? = null,
-    @SerialName("status_color") val statusColor: String? = null,
+    @SerialName("status_values") val statusValues: LiveMovementStatus? = null,
     @SerialName("door_name") val doorName: String? = null
-)
+) {
+    val statusName: String? get() = statusValues?.statusName
+    val statusColor: String? get() = statusValues?.statusColor
+}
 
 @Serializable
 data class TrailerItem(

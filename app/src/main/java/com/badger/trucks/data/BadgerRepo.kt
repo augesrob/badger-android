@@ -73,7 +73,7 @@ object BadgerRepo {
     // ===== LIVE MOVEMENT =====
     suspend fun getLiveMovement(): List<LiveMovement> =
         client.postgrest["live_movement"]
-            .select()
+            .select(Columns.raw("*, status_values(status_name, status_color)"))
             .decodeList()
 
     suspend fun addToMovement(truckNumber: String, location: String?) {
