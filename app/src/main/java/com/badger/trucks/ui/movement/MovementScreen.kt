@@ -152,7 +152,7 @@ fun MovementScreen() {
             onSelect = { status ->
                 scope.launch {
                     try {
-                        BadgerRepo.updateMovementStatus(truck.truckNumber, status.id, status.statusName, status.statusColor)
+                        BadgerRepo.updateMovementStatus(truck.truckNumber, status.id)
                         loadData()
                     } catch (e: Exception) { e.printStackTrace() }
                 }

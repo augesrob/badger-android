@@ -89,13 +89,9 @@ object BadgerRepo {
             .update({ set("current_location", location) }) { filter { eq("id", id) } }
     }
 
-    suspend fun updateMovementStatus(truckNumber: String, statusId: Int?, statusName: String?, statusColor: String?) {
+    suspend fun updateMovementStatus(truckNumber: String, statusId: Int?) {
         client.postgrest["live_movement"]
-            .update({
-                set("status_id", statusId)
-                set("status_name", statusName)
-                set("status_color", statusColor)
-            }) { filter { eq("truck_number", truckNumber) } }
+            .update({ set("status_id", statusId) }) { filter { eq("truck_number", truckNumber) } }
     }
 
     // ===== STATUS VALUES =====
