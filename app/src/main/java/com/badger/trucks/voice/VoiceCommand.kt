@@ -151,6 +151,7 @@ EXAMPLES:
 Now parse: "$text"
         """.trimIndent()
 
+        var clean = ""
         try {
             val body = buildJsonObject {
                 putJsonArray("contents") {
@@ -176,7 +177,7 @@ Now parse: "$text"
                 ?.get("text")?.jsonPrimitive?.content
                 ?: return@withContext VoiceCommand("unknown")
 
-            val clean = content.trim()
+            clean = content.trim()
                 .removePrefix("```json").removePrefix("```")
                 .removeSuffix("```").trim()
 
