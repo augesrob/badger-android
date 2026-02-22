@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -101,7 +102,10 @@ fun MovementScreen() {
     }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> hasMicPermission = granted }
+    ) { granted ->
+        hasMicPermission = granted
+        Toast.makeText(context, if (granted) "✅ Mic permission granted — press 📻 to talk" else "❌ Mic permission denied", Toast.LENGTH_LONG).show()
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -173,7 +177,10 @@ fun MovementScreen() {
 
             // PTT — listen for incoming audio via postgres realtime
             pttManager.startListening()
-            pttManager.onIncoming = { pttIncoming = true }
+            pttManager.onIncoming = {
+                pttIncoming = true
+                Toast.makeText(context, "📻 Incoming PTT...", Toast.LENGTH_SHORT).show()
+            }
             pttManager.onDone    = { pttIncoming = false }
         } catch (e: Exception) { e.printStackTrace() }
     }
@@ -372,13 +379,16 @@ fun MovementScreen() {
                         detectTapGestures(
                             onPress = {
                                 if (!hasMicPermission) {
+                                    Toast.makeText(context, "Requesting mic permission...", Toast.LENGTH_SHORT).show()
                                     micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                 } else {
+                                    Toast.makeText(context, "🔴 Recording...", Toast.LENGTH_SHORT).show()
                                     pttRecording = true
                                     pttManager.startRecording()
                                     tryAwaitRelease()
                                     pttRecording = false
                                     pttManager.stopRecording()
+                                    Toast.makeText(context, "📤 Sending...", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         )
