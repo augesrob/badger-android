@@ -22,21 +22,15 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 private const val TAG         = "PushToTalk"
 private const val SAMPLE_RATE = 8000
 private const val ENCODING    = AudioFormat.ENCODING_PCM_16BIT
 private const val TABLE       = "ptt_messages"
-
-@Serializable
-data class PttMessage(
-    val id: Long? = null,
-    val audio_b64: String,
-    val sender: String = "device"
-)
 
 class PushToTalkManager(
     private val context: Context,
@@ -62,23 +56,37 @@ class PushToTalkManager(
         val ch = client.channel("badger-ptt-listen")
         listenChannel = ch
 
-        listenJob = ch.postgresChangeFlow<PostgresAction.Insert>("public") {
+        listenJob = ch.postgresChangeFlow<PostgresAction>("public") {
             table = TABLE
         }.onEach { action ->
+            if (action !is PostgresAction.Insert) return@onEach
             try {
-                val row = action.decodeRecord<PttMessage>()
-                Log.d(TAG, "PTT incoming: ${row.audio_b64.length} b64 chars from ${row.sender}")
+                // Extract audio_b64 from the raw JsonObject record
+                val b64 = action.record["audio_b64"]?.jsonPrimitive?.content
+                if (b64.isNullOrEmpty()) {
+                    Log.w(TAG, "PTT: received row with no audio_b64")
+                    return@onEach
+                }
+                Log.d(TAG, "PTT incoming: ${b64.length} b64 chars")
                 scope.launch(Dispatchers.Main) { onIncoming?.invoke() }
-                val pcm = Base64.decode(row.audio_b64, Base64.DEFAULT)
+
+                val pcm = Base64.decode(b64, Base64.DEFAULT)
                 playPcm(pcm)
+
                 scope.launch(Dispatchers.Main) { onDone?.invoke() }
-                // Clean up old messages asynchronously
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        row.id?.let { id ->
-                            client.postgrest[TABLE].delete { filter { lt("id", id + 1) } }
+
+                // Clean up this row
+                val rowId = action.record["id"]?.jsonPrimitive?.longOrNull
+                if (rowId != null) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            client.postgrest[TABLE].delete {
+                                filter { lte("id", rowId.toString()) }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "PTT cleanup error: ${e.message}")
                         }
-                    } catch (_: Exception) {}
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "PTT receive error", e)
@@ -144,12 +152,10 @@ class PushToTalkManager(
                 val b64 = Base64.encodeToString(pcm, Base64.NO_WRAP)
                 Log.d(TAG, "PTT sending ${pcm.size} bytes as ${b64.length} b64 chars")
                 try {
-                    client.postgrest[TABLE].insert(
-                        buildJsonObject {
-                            put("audio_b64", b64)
-                            put("sender", "device")
-                        }
-                    )
+                    client.postgrest[TABLE].insert(buildJsonObject {
+                        put("audio_b64", b64)
+                        put("sender", "device")
+                    })
                     Log.d(TAG, "PTT sent OK")
                 } catch (e: Exception) {
                     Log.e(TAG, "PTT send error", e)
@@ -169,7 +175,7 @@ class PushToTalkManager(
 
     // ── Play raw PCM through speaker ──────────────────────────────────────────
     private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.IO) {
-        if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM, skipping"); return@withContext }
+        if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM"); return@withContext }
         try {
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, ENCODING)
             val track = AudioTrack.Builder()
