@@ -371,8 +371,7 @@ fun MovementScreen() {
                 animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse),
                 label = "ptt-scale"
             )
-            FloatingActionButton(
-                onClick = {},
+            Box(
                 modifier = Modifier
                     .scale(pttScale)
                     .pointerInput(Unit) {
@@ -392,11 +391,15 @@ fun MovementScreen() {
                                 }
                             }
                         )
-                    },
-                containerColor = pttColor,
-                shape = CircleShape
+                    }
             ) {
-                Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
+                FloatingActionButton(
+                    onClick = {},
+                    containerColor = pttColor,
+                    shape = CircleShape
+                ) {
+                    Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
+                }
             }
 
             // ── Voice command mic button ──
