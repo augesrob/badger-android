@@ -171,17 +171,19 @@ fun MovementScreen() {
         loadData()
         try {
             val channel = BadgerRepo.realtimeChannel("movement-android")
-            channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() }
-            channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() }
+            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
+            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() } }
             channel.subscribe()
+        } catch (e: Exception) { e.printStackTrace() }
 
-            // PTT — listen for incoming audio via postgres realtime
+        // PTT — runs independently, not blocked by realtime collectors above
+        try {
             pttManager.startListening()
             pttManager.onIncoming = {
                 pttIncoming = true
                 Toast.makeText(context, "📻 Incoming PTT...", Toast.LENGTH_SHORT).show()
             }
-            pttManager.onDone    = { pttIncoming = false }
+            pttManager.onDone = { pttIncoming = false }
         } catch (e: Exception) { e.printStackTrace() }
     }
 
