@@ -41,12 +41,32 @@ object VoiceCommandProcessor {
     private val http = HttpClient(OkHttp)
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Pre-process speech text to fix common patterns before sending to Gemini
+    private fun normalizeText(text: String, trucks: List<LiveMovement>): String {
+        var t = text.trim()
+
+        // "170 dash 1" / "170 slash 1" / "170 hyphen 1" / "170 minus 1" / "170 silent 1" → "170-1"
+        t = t.replace(Regex("(\\d+)\\s+(?:dash|slash|hyphen|minus|silent|stroke)\\s+(\\d+)", RegexOption.IGNORE_CASE)) { m ->
+            "${m.groupValues[1]}-${m.groupValues[2]}"
+        }
+
+        // "170 1" → "170-1" ONLY if "170-1" exists in the trucks list (never blindly combine)
+        t = t.replace(Regex("(\\d{2,3})\\s+(\\d{1,2})(?=\\s|$)")) { m ->
+            val candidate = "${m.groupValues[1]}-${m.groupValues[2]}"
+            if (trucks.any { it.truckNumber == candidate }) candidate else m.value
+        }
+
+        return t
+    }
+
     suspend fun parseCommand(
         text: String,
         trucks: List<LiveMovement>,
         doors: List<LoadingDoor>,
         statuses: List<StatusValue>
     ): VoiceCommand = withContext(Dispatchers.IO) {
+
+        val text = normalizeText(text, trucks)  // fix "170 dash 1" → "170-1" before AI sees it
 
         val truckList    = trucks.map { it.truckNumber }.joinToString(", ")
         val doorList     = doors.map { it.doorName }.joinToString(", ")
@@ -75,8 +95,12 @@ CONTEXT RULES — read carefully:
 
 IMPORTANT RULES:
 1. Return ONLY raw JSON, no markdown, no explanation.
-2. For "truck" field: ONLY use values that appear EXACTLY in the active trucks list. Never combine numbers. "148" and "8" are separate — never merge to "1488".
-3. For "door" field: ONLY use values from the loading doors list. Only use this when the command is about a PHYSICAL DOCK DOOR.
+2. For "truck" field: ONLY use values that appear EXACTLY in the active trucks list. NEVER combine or concatenate numbers.
+   - "170 dash 1", "170 slash 1", "170 hyphen 1", "170 minus 1", "170 silent 1", "170 1" → "170-1" (if in list)
+   - "170 1" must NEVER become "171" — the space between numbers means they are SEPARATE (truck-trailer format)
+   - If you hear two numbers separated by a pause/space/word, check if "[first]-[second]" exists in the trucks list first
+   - Only use a plain number like "170" if "170" is in the list AND "170-1", "170-2" etc. are not a better match for the full phrase
+   - Never merge "170" + "1" into "1701" or "171" under any circumstance
 4. For "status" field: return the EXACT string from truck statuses or door statuses list. Use fuzzy/semantic matching:
    - "E O T", "EOT", "end of tote" → "End Of Tote"
    - "EOT+1", "e o t plus one" → "EOT+1"
@@ -116,6 +140,8 @@ EXAMPLES:
 "148 indoors" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
 "148 ready" → {"action":"truck_status","truck":"148","door":null,"status":"Ready","location":null}
 "231-1 yard" → {"action":"truck_status","truck":"231-1","door":null,"status":"Yard","location":null}
+"170 dash 1 on route" → {"action":"truck_status","truck":"170-1","door":null,"status":"On Route","location":null}
+"170 1 indoor" → {"action":"truck_status","truck":"170-1","door":null,"status":"In Door","location":null}
 "door 8 loading" → {"action":"door_status","truck":null,"door":"8","status":"Loading","location":null}
 "148 status" → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
 
