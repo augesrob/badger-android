@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
             val update = AppUpdater.checkForUpdate(currentVersion)
             if (update != null) {
                 pendingUpdate = update
-                // Auto-download and install — no user action needed
+                // Auto-download and install in background
                 AppUpdater.downloadAndInstall(this@MainActivity, update) { /* silent */ }
             }
         }

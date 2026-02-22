@@ -1,23 +1,24 @@
 package com.badger.trucks.updater
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import androidx.core.content.FileProvider
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.utils.io.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import java.io.File
 
 private const val GITHUB_RELEASES_URL =
@@ -31,27 +32,31 @@ data class GithubRelease(
 
 @Serializable
 data class GithubAsset(
+    val id: Long = 0,
     val name: String,
     @SerialName("browser_download_url") val downloadUrl: String,
     val size: Long = 0
 )
 
 data class UpdateInfo(
-    val latestVersion: Int,       // parsed from tag like "v5" or "5"
+    val latestVersion: Int,
     val tagName: String,
-    val downloadUrl: String,
-    val assetName: String
+    val assetId: Long,
+    val assetName: String,
+    val downloadUrl: String
 )
 
 object AppUpdater {
 
-    private val http = HttpClient(OkHttp)
+    private val http = HttpClient(OkHttp) {
+        engine {
+            config {
+                followRedirects(true)
+            }
+        }
+    }
     private val json = Json { ignoreUnknownKeys = true }
 
-    /**
-     * Check GitHub for a newer release.
-     * Returns UpdateInfo if there's a newer version, null if up to date or error.
-     */
     suspend fun checkForUpdate(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
             val body = http.get(GITHUB_RELEASES_URL) {
@@ -61,21 +66,20 @@ object AppUpdater {
             }.bodyAsText()
 
             val release = json.decodeFromString<GithubRelease>(body)
-
-            // Parse version from tag: "v5", "5", "v1.5", etc. → take first integer group
-            val latestCode = Regex("\\d+").find(release.tagName)?.value?.toIntOrNull() ?: return@withContext null
+            val latestCode = Regex("\\d+").find(release.tagName)?.value?.toIntOrNull()
+                ?: return@withContext null
 
             if (latestCode <= currentVersionCode) return@withContext null
 
-            // Find the APK asset
             val apk = release.assets.firstOrNull { it.name.endsWith(".apk") }
                 ?: return@withContext null
 
             UpdateInfo(
                 latestVersion = latestCode,
                 tagName = release.tagName,
-                downloadUrl = apk.downloadUrl,
-                assetName = apk.name
+                assetId = apk.id,
+                assetName = apk.name,
+                downloadUrl = apk.downloadUrl
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -83,51 +87,34 @@ object AppUpdater {
         }
     }
 
-    /**
-     * Download the APK using DownloadManager and trigger install when done.
-     */
-    fun downloadAndInstall(context: Context, info: UpdateInfo, onProgress: (String) -> Unit) {
-        onProgress("Downloading ${info.assetName}...")
+    // Download via Ktor (handles private repo auth redirect correctly) then install
+    suspend fun downloadAndInstall(context: Context, info: UpdateInfo, onProgress: (String) -> Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                onProgress("Downloading ${info.assetName}...")
 
-        val request = DownloadManager.Request(Uri.parse(info.downloadUrl)).apply {
-            setTitle("Badger Update ${info.tagName}")
-            setDescription("Downloading update...")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, info.assetName)
-            setMimeType("application/vnd.android.package-archive")
-            addRequestHeader("User-Agent", "BadgerApp")
-            addRequestHeader("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
-            addRequestHeader("Accept", "application/octet-stream")
-        }
+                // Use the API asset endpoint with Accept: application/octet-stream
+                // This correctly handles private repo auth without DownloadManager redirect issues
+                val apiAssetUrl = "https://api.github.com/repos/augesrob/badger-android/releases/assets/${info.assetId}"
 
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val downloadId = dm.enqueue(request)
-
-        // Listen for completion
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    context.unregisterReceiver(this)
-                    val file = File(
-                        context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-                        info.assetName
-                    )
-                    if (file.exists()) {
-                        onProgress("Installing...")
-                        installApk(context, file)
-                    } else {
-                        onProgress("Download failed — file not found")
-                    }
+                val response: HttpResponse = http.get(apiAssetUrl) {
+                    header("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
+                    header("Accept", "application/octet-stream")
+                    header("User-Agent", "BadgerApp")
                 }
-            }
-        }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+                val file = File(context.getExternalFilesDir(null), info.assetName)
+                val bytes = response.readBytes()
+                file.writeBytes(bytes)
+
+                onProgress("Installing...")
+                withContext(Dispatchers.Main) {
+                    installApk(context, file)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onProgress("Download failed: ${e.message}")
+            }
         }
     }
 
@@ -145,4 +132,3 @@ object AppUpdater {
         context.startActivity(install)
     }
 }
-// Auto-update test Sun Feb 22 06:08:38 UTC 2026
