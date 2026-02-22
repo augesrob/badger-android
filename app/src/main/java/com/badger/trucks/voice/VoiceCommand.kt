@@ -54,53 +54,70 @@ object VoiceCommandProcessor {
         val doorStatList = DOOR_STATUSES.joinToString(", ")
 
         val prompt = """
-You are a smart voice command parser for a truck dispatch system.
-Your job is to understand natural speech — including abbreviations, spelling out of letters, and casual phrasing — and map it to a structured command.
+You are a voice command parser for a truck dispatch system at a warehouse.
 
-AVAILABLE DATA:
+AVAILABLE DATA (these are the ONLY valid values — never invent new ones):
 Active trucks: $truckList
-Loading doors: $doorList
-Truck statuses: $statusList
-Door statuses: $doorStatList
+Loading doors (physical dock doors): $doorList
+Truck statuses (where a truck IS or what it's doing): $statusList
+Door statuses (state of a loading dock): $doorStatList
 
 VOICE INPUT: "$text"
 
+CONTEXT RULES — read carefully:
+- Truck statuses like "8", "9", "12A", "13A", "In Door", "On Route", "Ready", "Yard" etc. describe WHERE a truck is or what it's doing.
+- Loading doors like "13A", "8" etc. are PHYSICAL dock doors at the warehouse.
+- The word "door" before a number/letter means it's a LOADING DOOR (dock). No "door" prefix = likely a truck STATUS.
+- "EOT", "E O T", "end of tote" = door status "End Of Tote" — this applies to a LOADING DOOR.
+- If someone says "149 to status 8" or "149 status 8" → they mean set truck 149's status to "8" (truck_status action).
+- If someone says "door 13A EOT" or "door 13A end of tote" → they mean set LOADING DOOR 13A's status to "End Of Tote" (door_status action).
+- If someone says "13A EOT" with NO "door" prefix → this is ambiguous. If 13A exists in loading doors list, treat as door_status. If not, treat as truck_status.
+
 IMPORTANT RULES:
 1. Return ONLY raw JSON, no markdown, no explanation.
-2. For "truck" field: ONLY use values that appear EXACTLY in the active trucks list above. Never combine or concatenate numbers. If you hear "148" and "148" is in the list, use "148". The number "8" is never part of the truck number unless "8" itself is in the trucks list. Never invent truck numbers not in the list.
-3. For "door" field: ONLY use values that appear EXACTLY in the loading doors list above. Never combine numbers. If "13A" is in the list and you hear "13 A", use "13A".
-4. For "status" field: you MUST return the EXACT status string from the lists above. Use fuzzy/semantic matching:
-   - "E O T", "EOT", "end of tote", "end of tot" → "End Of Tote"  
-   - "EOT plus 1", "EOT+1", "e o t plus one" → "EOT+1"
-   - "loading", "load it" → "Loading"
-   - "change truck", "change trailer", "swap" → "Change Truck/Trailer"
+2. For "truck" field: ONLY use values that appear EXACTLY in the active trucks list. Never combine numbers. "148" and "8" are separate — never merge to "1488".
+3. For "door" field: ONLY use values from the loading doors list. Only use this when the command is about a PHYSICAL DOCK DOOR.
+4. For "status" field: return the EXACT string from truck statuses or door statuses list. Use fuzzy/semantic matching:
+   - "E O T", "EOT", "end of tote" → "End Of Tote"
+   - "EOT+1", "e o t plus one" → "EOT+1"
+   - "loading" → "Loading"
+   - "change truck", "swap" → "Change Truck/Trailer"
    - "waiting", "wait" → "Waiting"
-   - "done", "done for the night", "finished" → "Done for Night"
-   - "hundred percent", "100", "complete" → "100%"
-   - "on route", "en route", "on the road" → match closest truck status
-   - "status" alone with no qualifier means you should look for context clues in the sentence
-5. For action:
-   - "truck_status": changing a truck's status (e.g. "set 148 to on route")
-   - "door_status": changing a door's status (e.g. "door 13A EOT")
-   - "truck_location": moving a truck to a door/location (e.g. "148 is at door 5")
-   - "unknown": cannot determine intent
+   - "done", "done for night" → "Done for Night"
+   - "hundred percent", "100 percent" → "100%"
+   - "in door" → "In Door"
+   - "put away" → "Put Away"
+   - "on route", "en route" → "On Route"
+   - "in front" → "In Front"
+   - "ready" → "Ready"
+   - "in back" → "In Back"
+   - "the rock" → "The Rock"
+   - "trailer area" → "Trailer Area"
+   - "yard" → "Yard"
+   - "missing" → "Missing"
+   - "gap" → "Gap"
+   - "transfer" → "Transfer"
+   - "end" → "END"
+   - "ignore" → "Ignore"
+   - A bare number like "8", "9", "12A", "13A" with no "door" prefix = truck STATUS
+5. action values:
+   - "truck_status": changing a TRUCK's status (e.g. "149 to status 8", "set 148 on route")
+   - "door_status": changing a LOADING DOOR's status (e.g. "door 13A EOT")
+   - "truck_location": moving a truck to a dock location
+   - "unknown": cannot determine
 
 EXAMPLES:
-"148 status" → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
-"148 status 8" → truck=148 (from list), "8" is leftover context not a combined number → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
-"door 13 alpha to E O T" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-"thirteen A end of tote" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-"truck 231 dash 1 is in door 8" → {"action":"truck_location","truck":"231-1","door":null,"status":null,"location":"door 8"}
-"set 223 on route" → {"action":"truck_status","truck":"223","door":null,"status":"On Route","location":null}
-"door 5 done for night" → {"action":"door_status","truck":null,"door":"5","status":"Done for Night","location":null}
-"148 loading" → {"action":"truck_status","truck":"148","door":null,"status":"Loading","location":null}
-"148 status" → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
 "door 13A EOT" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-"13 A E O T" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-
-CRITICAL: When the voice says letters spaced out like "E O T" that means the acronym EOT = "End Of Tote".
-CRITICAL: Numbers matching a truck number = truck. Numbers matching a door name = door. Use the lists.
-CRITICAL: If a number appears in BOTH trucks and doors, prefer truck unless the word "door" was said.
+"door 13A end of tote" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
+"13A E O T" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
+"149 to status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
+"149 status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
+"set 148 on route" → {"action":"truck_status","truck":"148","door":null,"status":"On Route","location":null}
+"148 in door" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
+"148 ready" → {"action":"truck_status","truck":"148","door":null,"status":"Ready","location":null}
+"231-1 yard" → {"action":"truck_status","truck":"231-1","door":null,"status":"Yard","location":null}
+"door 8 loading" → {"action":"door_status","truck":null,"door":"8","status":"Loading","location":null}
+"148 status" → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
 
 Now parse: "$text"
         """.trimIndent()
