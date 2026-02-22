@@ -57,6 +57,7 @@ object AppUpdater {
             val body = http.get(GITHUB_RELEASES_URL) {
                 header("Accept", "application/vnd.github+json")
                 header("User-Agent", "BadgerApp")
+                header("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
             }.bodyAsText()
 
             val release = json.decodeFromString<GithubRelease>(body)
@@ -95,6 +96,8 @@ object AppUpdater {
             setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, info.assetName)
             setMimeType("application/vnd.android.package-archive")
             addRequestHeader("User-Agent", "BadgerApp")
+            addRequestHeader("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
+            addRequestHeader("Accept", "application/octet-stream")
         }
 
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
