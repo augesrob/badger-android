@@ -181,7 +181,7 @@ class PushToTalkManager(
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -197,6 +197,7 @@ class PushToTalkManager(
                 .build()
 
             track.write(pcm, 0, pcm.size)
+            track.setVolume(AudioTrack.getMaxVolume())
             track.play()
 
             val durationMs = (pcm.size.toLong() * 1000L) / (SAMPLE_RATE * 2)
