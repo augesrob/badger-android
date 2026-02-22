@@ -172,36 +172,26 @@ fun MovementScreen() {
     LaunchedEffect(Unit) {
         loadData()
 
-        fun subscribeMovement() {
-            scope.launch {
-                try {
-                    val channel = BadgerRepo.realtimeChannel("movement-android")
-                    launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
-                    launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() } }
-                    channel.subscribe()
-                    Log.d("MovementScreen", "Realtime subscribed")
-
-                    // Heartbeat: reconnect if channel drops
-                    while (isActive) {
-                        delay(30_000L)
-                        val status = channel.status.value
-                        if (status != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
-                            Log.w("MovementScreen", "Realtime dropped (status=$status), reconnecting...")
-                            try { channel.unsubscribe() } catch (_: Exception) {}
-                            subscribeMovement()
-                            return@launch
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    Log.e("MovementScreen", "Realtime error, retrying in 5s: ${e.message}")
-                    delay(5_000L)
-                    subscribeMovement()
-                }
-            }
+        // Subscribe to realtime changes
+        try {
+            val channel = BadgerRepo.realtimeChannel("movement-android")
+            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
+            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() } }
+            channel.subscribe()
+            Log.d("MovementScreen", "Realtime subscribed")
+        } catch (e: Exception) {
+            Log.e("MovementScreen", "Realtime subscribe error: ${e.message}")
         }
 
-        subscribeMovement()
+        // Polling fallback: refresh every 30s in case realtime drops
+        // Don't touch the channel itself — PTT shares the same connection
+        launch {
+            while (isActive) {
+                delay(30_000L)
+                loadData()
+                Log.d("MovementScreen", "Polling refresh")
+            }
+        }
 
         // PTT — runs independently
         try {
