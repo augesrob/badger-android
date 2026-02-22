@@ -374,8 +374,12 @@ fun MovementScreen() {
                 label = "ptt-scale"
             )
             Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
+                    .size(56.dp)
                     .scale(pttScale)
+                    .clip(CircleShape)
+                    .background(pttColor)
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onPress = {
@@ -395,13 +399,7 @@ fun MovementScreen() {
                         )
                     }
             ) {
-                FloatingActionButton(
-                    onClick = {},
-                    containerColor = pttColor,
-                    shape = CircleShape
-                ) {
-                    Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
-                }
+                Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
             }
 
             // ── Voice command mic button ──
