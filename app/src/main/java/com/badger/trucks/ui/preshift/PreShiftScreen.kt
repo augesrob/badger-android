@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.badger.trucks.data.*
 import com.badger.trucks.ui.theme.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -34,7 +35,12 @@ fun PreShiftScreen() {
     val scope = rememberCoroutineScope()
     var doors by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var activeTrucks by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var printroomEntries by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+
+    // Pending duplicate confirmation: Triple(doorId, field, newValue)
+    data class PendingStaging(val doorId: Int, val field: String, val value: String, val conflictMsg: String)
+    var pendingStaging by remember { mutableStateOf<PendingStaging?>(null) }
 
     fun loadData() {
         scope.launch {
@@ -42,8 +48,45 @@ fun PreShiftScreen() {
                 doors = BadgerRepo.getStagingDoors()
                 val movement = BadgerRepo.getLiveMovement()
                 activeTrucks = movement.map { it.truckNumber }.toSet()
+                printroomEntries = BadgerRepo.getPrintroomEntries()
             } catch (e: Exception) { e.printStackTrace() }
             loading = false
+        }
+    }
+
+    fun doSave(doorId: Int, field: String, value: String) {
+        scope.launch {
+            try { BadgerRepo.updateStagingField(doorId, field, value.ifBlank { null }) }
+            catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    fun checkAndSave(door: StagingDoor, field: String, value: String) {
+        if (value.isBlank()) { doSave(door.id, field, value); return }
+        // Check if truck number already used in another staging cell
+        val usedInStaging = doors.any { d ->
+            d.id != door.id && (d.inFront == value || d.inBack == value)
+        }
+        // Check same door other field
+        val usedSameRow = (field == "in_front" && door.inBack == value) ||
+                          (field == "in_back" && door.inFront == value)
+        // Check printroom
+        val usedInPrintroom = printroomEntries.any { it.truckNumber == value }
+
+        val conflictMsg = when {
+            usedSameRow -> "Truck $value is already in the other slot of door ${door.doorLabel}."
+            usedInStaging -> {
+                val other = doors.first { d -> d.id != door.id && (d.inFront == value || d.inBack == value) }
+                "Truck $value is already staged at door ${other.doorLabel}."
+            }
+            usedInPrintroom -> "Truck $value is already assigned in the Print Room."
+            else -> null
+        }
+
+        if (conflictMsg != null) {
+            pendingStaging = PendingStaging(door.id, field, value, conflictMsg)
+        } else {
+            doSave(door.id, field, value)
         }
     }
 
@@ -56,6 +99,18 @@ fun PreShiftScreen() {
             }.collect { loadData() }
             channel.subscribe()
         } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    // Duplicate confirmation dialog
+    pendingStaging?.let { pending ->
+        DuplicateStagingDialog(
+            message = pending.conflictMsg,
+            onUseAnyway = {
+                doSave(pending.doorId, pending.field, pending.value)
+                pendingStaging = null
+            },
+            onCancel = { pendingStaging = null }
+        )
     }
 
     if (loading) {
@@ -104,12 +159,7 @@ fun PreShiftScreen() {
             StagingRow(
                 door = door,
                 isActive = { truck -> activeTrucks.contains(truck) },
-                onSave = { field, value ->
-                    scope.launch {
-                        try { BadgerRepo.updateStagingField(door.id, field, value.ifBlank { null }) }
-                        catch (e: Exception) { e.printStackTrace() }
-                    }
-                }
+                onSave = { field, value -> checkAndSave(door, field, value) }
             )
         }
     }
@@ -157,6 +207,34 @@ fun StagingRow(
     Divider(color = DarkBorder.copy(alpha = 0.3f))
 }
 
+@Composable
+fun DuplicateStagingDialog(
+    message: String,
+    onUseAnyway: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Dialog(onDismissRequest = onCancel) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("⚠️ Truck Already In Use", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFFF59E0B))
+                Text(message, color = LightText, fontSize = 14.sp)
+                Text("Do you want to use it anyway, or cancel?", color = MutedText, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MutedText)
+                    ) { Text("Cancel") }
+                    Button(
+                        onClick = onUseAnyway,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black)
+                    ) { Text("Use Anyway", fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+    }
+}
 @Composable
 fun StagingCell(
     value: String,

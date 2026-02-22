@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-25:12
-INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-25:12
-INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-25:12
-INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-25:12
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-33:12
+INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-33:12
+INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-33:12
+INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:2:1-33:12
 MERGED from [androidx.navigation:navigation-common:2.7.7] C:\Users\auges\.gradle\caches\transforms-4\ac3026211ed2ad4012e44bc9de3ba71e\transformed\navigation-common-2.7.7\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.navigation:navigation-runtime:2.7.7] C:\Users\auges\.gradle\caches\transforms-4\5a8172d7612af9b63d9b086549717ea4\transformed\navigation-runtime-2.7.7\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.navigation:navigation-common-ktx:2.7.7] C:\Users\auges\.gradle\caches\transforms-4\e23346fe3ab8a3c415b4600a48ff4d04\transformed\navigation-common-ktx-2.7.7\AndroidManifest.xml:2:1-7:12
@@ -82,9 +82,21 @@ uses-permission#android.permission.ACCESS_NETWORK_STATE
 ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:5:5-79
 	android:name
 		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:5:22-76
+uses-permission#android.permission.FOREGROUND_SERVICE
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:6:5-77
+	android:name
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:6:22-74
+uses-permission#android.permission.FOREGROUND_SERVICE_DATA_SYNC
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:7:5-87
+	android:name
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:7:22-84
+uses-permission#android.permission.POST_NOTIFICATIONS
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:8:5-77
+	android:name
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:8:22-74
 application
-ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:7:5-24:19
-INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:7:5-24:19
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:10:5-32:19
+INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:10:5-32:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.6.3] C:\Users\auges\.gradle\caches\transforms-4\67e992aebf4ab08c6b769f4bbdafc4b5\transformed\ui-tooling-release\AndroidManifest.xml:22:5-26:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.6.3] C:\Users\auges\.gradle\caches\transforms-4\67e992aebf4ab08c6b769f4bbdafc4b5\transformed\ui-tooling-release\AndroidManifest.xml:22:5-26:19
 MERGED from [io.github.jan-tennert.supabase:gotrue-kt-android-debug:2.5.0] C:\Users\auges\.gradle\caches\transforms-4\7206887866f423492275b536f8da888c\transformed\gotrue-kt-debug\AndroidManifest.xml:8:5-18:19
@@ -108,37 +120,45 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\auges\.gradle\cach
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.12.0] C:\Users\auges\.gradle\caches\transforms-4\fdbbcef21719ecdd12883ea5cdc3d8f9\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:12:9-35
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:15:9-35
 	android:label
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:10:9-38
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:13:9-38
 	android:roundIcon
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:11:9-54
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:14:9-54
 	android:icon
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:9:9-43
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:12:9-43
 	android:allowBackup
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:8:9-35
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:11:9-35
 	android:theme
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:13:9-50
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:16:9-50
 	android:name
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:14:9-34
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:17:9-34
 activity#com.badger.trucks.MainActivity
-ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:15:9-23:20
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:18:9-26:20
 	android:exported
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:17:13-36
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:20:13-36
 	android:theme
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:18:13-54
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:21:13-54
 	android:name
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:16:13-41
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:19:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:19:13-22:29
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:22:13-25:29
 action#android.intent.action.MAIN
-ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:20:17-69
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:23:17-69
 	android:name
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:20:25-66
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:23:25-66
 category#android.intent.category.LAUNCHER
-ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:21:17-77
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:24:17-77
 	android:name
-		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:21:27-74
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:24:27-74
+service#com.badger.trucks.service.BadgerService
+ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:28:9-31:40
+	android:exported
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:31:13-37
+	android:foregroundServiceType
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:30:13-53
+	android:name
+		ADDED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml:29:13-50
 uses-sdk
 INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from C:\Users\auges\StudioProjects\badger-android\app\src\main\AndroidManifest.xml

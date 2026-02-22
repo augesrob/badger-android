@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "com.badger.trucks.app-release-49:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.badger.trucks.app-main-50:/mipmap-anydpi-v26/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.badger.trucks.app-release-49:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.badger.trucks.app-main-50:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.badger.trucks.app-release-49:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.badger.trucks.app-main-50:/mipmap-anydpi-v26/ic_launcher.xml"
+    }
+]

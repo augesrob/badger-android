@@ -44,6 +44,9 @@ fun PrintRoomScreen() {
     var loading by remember { mutableStateOf(true) }
     var addDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
     var editDialogEntry by remember { mutableStateOf<PrintroomEntry?>(null) }
+    // Duplicate truck confirmation state
+    data class PendingAdd(val entry: PrintroomEntry, val door: LoadingDoor, val conflictMsg: String)
+    var pendingAdd by remember { mutableStateOf<PendingAdd?>(null) }
 
     fun loadData() {
         scope.launch {
@@ -76,16 +79,67 @@ fun PrintRoomScreen() {
             routes = routes,
             onDismiss = { addDialogDoor = null },
             onSave = { entry ->
+                // Check if truck already exists elsewhere in printroom
+                val existingEntry = entries.find {
+                    it.truckNumber == entry.truckNumber && it.loadingDoorId != door.id
+                }
+                val sameEntry = entries.find {
+                    it.truckNumber == entry.truckNumber && it.loadingDoorId == door.id
+                }
+                val conflictMsg = when {
+                    existingEntry != null -> {
+                        val doorName = doors.find { d -> d.id == existingEntry.loadingDoorId }?.doorName ?: "another door"
+                        "Truck ${entry.truckNumber} is already assigned to $doorName."
+                    }
+                    sameEntry != null -> "Truck ${entry.truckNumber} is already in this door."
+                    else -> null
+                }
+                if (conflictMsg != null) {
+                    pendingAdd = PendingAdd(entry, door, conflictMsg)
+                    addDialogDoor = null
+                } else {
+                    scope.launch {
+                        try {
+                            val doorEntries = entries.filter {
+                                it.loadingDoorId == door.id && it.batchNumber == entry.batchNumber
+                            }
+                            val nextRowOrder = (doorEntries.maxOfOrNull { it.rowOrder } ?: 0) + 1
+                            val entryWithOrder = entry.copy(rowOrder = nextRowOrder)
+                            BadgerRepo.upsertPrintroomEntry(entryWithOrder)
+                            val existing = BadgerRepo.getLiveMovement().find { it.truckNumber == entry.truckNumber }
+                            if (existing == null && entry.truckNumber != null) {
+                                val preshiftLoc = staging.firstOrNull {
+                                    it.inFront == entry.truckNumber || it.inBack == entry.truckNumber
+                                }?.let { sd ->
+                                    val pos = if (sd.inFront == entry.truckNumber) "Front" else "Back"
+                                    "Dr${sd.doorLabel} $pos"
+                                }
+                                BadgerRepo.addToMovement(entry.truckNumber, preshiftLoc)
+                            }
+                            loadData()
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                    addDialogDoor = null
+                }
+            }
+        )
+    }
+
+    // Duplicate confirmation dialog
+    pendingAdd?.let { pending ->
+        DuplicateTruckDialog(
+            message = pending.conflictMsg,
+            onUseAnyway = {
                 scope.launch {
                     try {
-                        // Calculate next row_order = max existing row_order for this door+batch + 1
+                        val door = pending.door
+                        val entry = pending.entry
                         val doorEntries = entries.filter {
                             it.loadingDoorId == door.id && it.batchNumber == entry.batchNumber
                         }
                         val nextRowOrder = (doorEntries.maxOfOrNull { it.rowOrder } ?: 0) + 1
                         val entryWithOrder = entry.copy(rowOrder = nextRowOrder)
                         BadgerRepo.upsertPrintroomEntry(entryWithOrder)
-                        // Auto-add to live_movement if not there yet
                         val existing = BadgerRepo.getLiveMovement().find { it.truckNumber == entry.truckNumber }
                         if (existing == null && entry.truckNumber != null) {
                             val preshiftLoc = staging.firstOrNull {
@@ -99,8 +153,9 @@ fun PrintRoomScreen() {
                         loadData()
                     } catch (e: Exception) { e.printStackTrace() }
                 }
-                addDialogDoor = null
-            }
+                pendingAdd = null
+            },
+            onCancel = { pendingAdd = null }
         )
     }
 
@@ -497,6 +552,35 @@ fun EditTruckDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black)
                 ) {
                     Text("Save Changes", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DuplicateTruckDialog(
+    message: String,
+    onUseAnyway: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Dialog(onDismissRequest = onCancel) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("⚠️ Truck Already In Use", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = Color(0xFFF59E0B))
+                Text(message, color = LightText, fontSize = 14.sp)
+                Text("Do you want to add it anyway, or cancel?", color = MutedText, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MutedText)
+                    ) { Text("Cancel") }
+                    Button(
+                        onClick = onUseAnyway,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black)
+                    ) { Text("Use Anyway", fontWeight = FontWeight.Bold) }
                 }
             }
         }
