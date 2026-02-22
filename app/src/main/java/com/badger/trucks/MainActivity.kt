@@ -30,6 +30,9 @@ import com.badger.trucks.ui.preshift.PreShiftScreen
 import com.badger.trucks.ui.movement.MovementScreen
 import com.badger.trucks.ui.admin.AdminScreen
 import com.badger.trucks.updater.AppUpdater
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -38,17 +41,37 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* permissions handled */ }
 
+    private var updateCheckJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestAppPermissions()
         startBadgerService()
-        checkForUpdate()
         setContent {
             BadgerTheme {
                 BadgerMainApp()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Check for update every time app comes to foreground
+        checkForUpdate()
+        // Also start a periodic check every 30 minutes while app is open
+        updateCheckJob?.cancel()
+        updateCheckJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(30 * 60 * 1000L) // 30 minutes
+                checkForUpdate()
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        updateCheckJob?.cancel()
     }
 
     private fun requestAppPermissions() {
@@ -86,6 +109,8 @@ class MainActivity : ComponentActivity() {
             val update = AppUpdater.checkForUpdate(currentVersion)
             if (update != null) {
                 pendingUpdate = update
+                // Auto-download and install — no user action needed
+                AppUpdater.downloadAndInstall(this@MainActivity, update) { /* silent */ }
             }
         }
     }
