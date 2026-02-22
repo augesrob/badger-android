@@ -15,9 +15,16 @@ android {
         versionCode = 2
         versionName = "2.0"
 
-        // Supabase config
-        buildConfigField("String", "SUPABASE_URL", "\"https://vjmvuqunedyuovtqtotj.supabase.co\"")
-        buildConfigField("String", "SUPABASE_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqbXZ1cXVuZWR5dW92dHF0b3RqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyOTkzMTksImV4cCI6MjA4Njg3NTMxOX0.lmwf-6O1bZQ9UyrNegGM5tg3hMv-HMwHAKsGTWq_z0U\"")
+        // Secrets injected from local.properties (dev) or GitHub Secrets (CI)
+        val localProps = java.util.Properties().also { props ->
+            val f = rootProject.file("local.properties")
+            if (f.exists()) props.load(f.inputStream())
+        }
+        fun secret(key: String) = System.getenv(key) ?: localProps.getProperty(key) ?: ""
+
+        buildConfigField("String", "SUPABASE_URL",  "\"${secret("SUPABASE_URL")}\"")
+        buildConfigField("String", "SUPABASE_KEY",  "\"${secret("SUPABASE_KEY")}\"")
+        buildConfigField("String", "GEMINI_API_KEY","\"${secret("GEMINI_API_KEY")}\"")
     }
 
     buildTypes {

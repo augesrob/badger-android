@@ -16,11 +16,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import com.badger.trucks.BuildConfig
 
-// ─── Get a free key at https://aistudio.google.com/ ────────────────────────
-private const val GEMINI_API_KEY = "AIzaSyByB30poej45HX7ujWNxITYvkRGpbpm7s4"
-private const val GEMINI_URL =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY"
+// ─── Key injected at build time from GitHub Secret / local.properties ────────
+private val GEMINI_URL get() =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${BuildConfig.GEMINI_API_KEY}"
 
 // ─── Result types ────────────────────────────────────────────────────────────
 sealed class VoiceResult {
