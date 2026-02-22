@@ -33,7 +33,12 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import com.badger.trucks.voice.PushToTalkManager
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
@@ -88,6 +93,15 @@ fun MovementScreen() {
     var pttRecording by remember { mutableStateOf(false) }
     var pttIncoming by remember { mutableStateOf(false) }
     val pttManager = remember { PushToTalkManager(context, scope) }
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasMicPermission = granted }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -162,7 +176,7 @@ fun MovementScreen() {
             pttManager.attach(ptt)
             pttManager.onIncoming = { scope.launch { pttIncoming = true } }
             pttManager.onDone    = { scope.launch { pttIncoming = false } }
-            ptt.subscribe()
+            try { ptt.subscribe() } catch (_: Exception) { /* already subscribed */ }
         } catch (e: Exception) { e.printStackTrace() }
     }
 
@@ -359,11 +373,15 @@ fun MovementScreen() {
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onPress = {
-                                pttRecording = true
-                                pttManager.startRecording()
-                                tryAwaitRelease()
-                                pttRecording = false
-                                pttManager.stopRecording()
+                                if (!hasMicPermission) {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    pttRecording = true
+                                    pttManager.startRecording()
+                                    tryAwaitRelease()
+                                    pttRecording = false
+                                    pttManager.stopRecording()
+                                }
                             }
                         )
                     },

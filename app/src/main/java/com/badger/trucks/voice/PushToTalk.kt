@@ -38,6 +38,7 @@ class PushToTalkManager(
     private var recordJob: Job? = null
     private var listenJob: Job? = null
     private var channel: RealtimeChannel? = null
+    @Volatile private var recording = false
 
     var onIncoming: (() -> Unit)? = null
     var onDone: (() -> Unit)? = null
@@ -87,13 +88,14 @@ class PushToTalkManager(
         }
 
         recorder = rec
+        recording = true
         val chunks = mutableListOf<ByteArray>()
         rec.startRecording()
         Log.d(TAG, "PTT recording started")
 
         recordJob = scope.launch(Dispatchers.IO) {
             val buf = ByteArray(minBuf)
-            while (isActive && recorder != null) {
+            while (isActive && recording) {
                 val read = rec.read(buf, 0, buf.size)
                 if (read > 0) chunks.add(buf.copyOf(read))
             }
@@ -117,12 +119,13 @@ class PushToTalkManager(
 
     // ── Stop recording — recordJob will finish and send ───────────────────────
     fun stopRecording() {
+        recording = false
         recorder?.let {
             it.stop()
             it.release()
         }
         recorder = null
-        // recordJob sees recorder==null and exits its loop, then sends
+        // recordJob sees recording==false and exits its loop, then sends
     }
 
     // ── Play PCM through speaker ──────────────────────────────────────────────
