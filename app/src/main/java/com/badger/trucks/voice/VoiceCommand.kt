@@ -89,7 +89,8 @@ CONTEXT RULES — read carefully:
 - Loading doors like "13A", "8" etc. are PHYSICAL dock doors at the warehouse.
 - The word "door" before a number/letter means it's a LOADING DOOR (dock). No "door" prefix = likely a truck STATUS.
 - "EOT", "E O T", "end of tote" = door status "End Of Tote" — this applies to a LOADING DOOR.
-- If someone says "149 to status 8" or "149 status 8" → they mean set truck 149's status to "8" (truck_status action).
+- If someone says "[truck] status [value]" the word "status" is just a connector word meaning "set status to" — the value after it IS the status
+- "148 status 8" = set truck 148 status to "8". "status" alone with nothing after = status is unknown (null)
 - If someone says "door 13A EOT" or "door 13A end of tote" → they mean set LOADING DOOR 13A's status to "End Of Tote" (door_status action).
 - If someone says "13A EOT" with NO "door" prefix → this is ambiguous. If 13A exists in loading doors list, treat as door_status. If not, treat as truck_status.
 
@@ -132,6 +133,8 @@ EXAMPLES:
 "door 13A EOT" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
 "door 13A end of tote" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
 "13A E O T" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
+"148 status 8" → truck=148, "status 8" means set status TO "8" → {"action":"truck_status","truck":"148","door":null,"status":"8","location":null}
+"148 status" → no status value given, just the word status alone → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
 "149 to status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
 "149 status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
 "set 148 on route" → {"action":"truck_status","truck":"148","door":null,"status":"On Route","location":null}
@@ -177,9 +180,12 @@ Now parse: "$text"
                 .removePrefix("```json").removePrefix("```")
                 .removeSuffix("```").trim()
 
-            json.decodeFromString<VoiceCommand>(clean)
+            val cmd = json.decodeFromString<VoiceCommand>(clean)
+            android.util.Log.d("VoiceCmd", "Input='$text' action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
+            cmd
         } catch (e: Exception) {
             e.printStackTrace()
+            android.util.Log.e("VoiceCmd", "Parse failed for: '$text' raw=$clean")
             VoiceCommand("unknown")
         }
     }
