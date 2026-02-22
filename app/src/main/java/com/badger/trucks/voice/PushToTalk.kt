@@ -47,8 +47,34 @@ class PushToTalkManager(
     var onIncoming: (() -> Unit)? = null
     var onDone: (() -> Unit)? = null
 
+    private var heartbeatJob: Job? = null
+
     // ── Start listening for incoming PTT via postgres realtime ────────────────
     fun startListening() {
+        listenJob?.cancel()
+        heartbeatJob?.cancel()
+        listenChannel?.let { ch ->
+            scope.launch { try { ch.unsubscribe() } catch (_: Exception) {} }
+        }
+
+        subscribeChannel()
+
+        // Heartbeat: check every 30s and reconnect if channel dropped
+        heartbeatJob = scope.launch {
+            while (isActive) {
+                delay(30_000L)
+                val status = listenChannel?.status?.value
+                if (status != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
+                    Log.w(TAG, "PTT channel dropped (status=$status), reconnecting...")
+                    subscribeChannel()
+                } else {
+                    Log.d(TAG, "PTT heartbeat OK")
+                }
+            }
+        }
+    }
+
+    private fun subscribeChannel() {
         listenJob?.cancel()
         listenChannel?.let { ch ->
             scope.launch { try { ch.unsubscribe() } catch (_: Exception) {} }
@@ -226,6 +252,7 @@ class PushToTalkManager(
         stopRecording()
         recordJob?.cancel()
         listenJob?.cancel()
+        heartbeatJob?.cancel()
         scope.launch { try { listenChannel?.unsubscribe() } catch (_: Exception) {} }
     }
 }
