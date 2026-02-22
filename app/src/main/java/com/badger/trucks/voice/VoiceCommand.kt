@@ -67,8 +67,8 @@ VOICE INPUT: "$text"
 
 IMPORTANT RULES:
 1. Return ONLY raw JSON, no markdown, no explanation.
-2. For "truck" field: extract the truck number exactly as it appears in the active trucks list. Match by number even if speech says "truck one four eight" or "148".
-3. For "door" field: extract the door name exactly as it appears in loading doors list. "door 13 alpha" = "13A", "thirteen A" = "13A".
+2. For "truck" field: ONLY use values that appear EXACTLY in the active trucks list above. Never combine or concatenate numbers. If you hear "148" and "148" is in the list, use "148". The number "8" is never part of the truck number unless "8" itself is in the trucks list. Never invent truck numbers not in the list.
+3. For "door" field: ONLY use values that appear EXACTLY in the loading doors list above. Never combine numbers. If "13A" is in the list and you hear "13 A", use "13A".
 4. For "status" field: you MUST return the EXACT status string from the lists above. Use fuzzy/semantic matching:
    - "E O T", "EOT", "end of tote", "end of tot" → "End Of Tote"  
    - "EOT plus 1", "EOT+1", "e o t plus one" → "EOT+1"
@@ -86,7 +86,8 @@ IMPORTANT RULES:
    - "unknown": cannot determine intent
 
 EXAMPLES:
-"148 status" → think: truck 148 needs a status update, but no status given → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
+"148 status" → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
+"148 status 8" → truck=148 (from list), "8" is leftover context not a combined number → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
 "door 13 alpha to E O T" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
 "thirteen A end of tote" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
 "truck 231 dash 1 is in door 8" → {"action":"truck_location","truck":"231-1","door":null,"status":null,"location":"door 8"}
