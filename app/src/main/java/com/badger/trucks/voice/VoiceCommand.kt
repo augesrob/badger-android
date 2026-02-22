@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import com.badger.trucks.BuildConfig
 import com.badger.trucks.data.*
 import io.ktor.client.*
@@ -41,16 +42,16 @@ object VoiceCommandProcessor {
     private val http = HttpClient(OkHttp)
     private val json = Json { ignoreUnknownKeys = true }
 
-    // Pre-process speech text to fix common patterns before sending to Gemini
-    private fun normalizeText(text: String, trucks: List<LiveMovement>): String {
-        var t = text.trim()
+    // ── Step 1: normalize speech before anything else ─────────────────────────
+    private fun normalizeText(raw: String, trucks: List<LiveMovement>): String {
+        var t = raw.trim()
 
         // "170 dash 1" / "170 slash 1" / "170 hyphen 1" / "170 minus 1" / "170 silent 1" → "170-1"
         t = t.replace(Regex("(\\d+)\\s+(?:dash|slash|hyphen|minus|silent|stroke)\\s+(\\d+)", RegexOption.IGNORE_CASE)) { m ->
             "${m.groupValues[1]}-${m.groupValues[2]}"
         }
 
-        // "170 1" → "170-1" ONLY if "170-1" exists in the trucks list (never blindly combine)
+        // "170 1" → "170-1" ONLY if that combo exists in trucks list
         t = t.replace(Regex("(\\d{2,3})\\s+(\\d{1,2})(?=\\s|$)")) { m ->
             val candidate = "${m.groupValues[1]}-${m.groupValues[2]}"
             if (trucks.any { it.truckNumber == candidate }) candidate else m.value
@@ -59,6 +60,111 @@ object VoiceCommandProcessor {
         return t
     }
 
+    // ── Step 2: try to parse WITHOUT Gemini for common patterns ───────────────
+    private fun directParse(
+        text: String,
+        trucks: List<LiveMovement>,
+        statuses: List<StatusValue>
+    ): VoiceCommand? {
+
+        val t = text.trim()
+
+        // Pattern: "[truck] status [statusValue]"
+        // Handles: "148 status 10", "148 status 12A", "148 status on route", etc.
+        val statusWordMatch = Regex("^(\\S+)\\s+status\\s+(.+)$", RegexOption.IGNORE_CASE).find(t)
+        if (statusWordMatch != null) {
+            val truckRaw  = statusWordMatch.groupValues[1]
+            val statusRaw = statusWordMatch.groupValues[2].trim()
+            val truck = trucks.find { it.truckNumber.equals(truckRaw, ignoreCase = true) }
+            if (truck != null) {
+                val status = fuzzyMatchStatus(statusRaw, statuses)
+                Log.d("VoiceCmd", "DirectParse: truck=${truck.truckNumber} status=${status?.statusName} (raw=$statusRaw)")
+                return VoiceCommand("truck_status", truck = truck.truckNumber, status = status?.statusName)
+            }
+        }
+
+        // Pattern: "[truck] to [statusValue]" — "148 to 10", "148 to on route"
+        val toMatch = Regex("^(\\S+)\\s+to\\s+(.+)$", RegexOption.IGNORE_CASE).find(t)
+        if (toMatch != null) {
+            val truckRaw  = toMatch.groupValues[1]
+            val statusRaw = toMatch.groupValues[2].trim()
+            val truck = trucks.find { it.truckNumber.equals(truckRaw, ignoreCase = true) }
+            if (truck != null) {
+                val status = fuzzyMatchStatus(statusRaw, statuses)
+                Log.d("VoiceCmd", "DirectParse to: truck=${truck.truckNumber} status=${status?.statusName}")
+                return VoiceCommand("truck_status", truck = truck.truckNumber, status = status?.statusName)
+            }
+        }
+
+        // Pattern: "[truck] [statusValue]" — "148 yard", "148 indoor", "148 ready"
+        // Only if status matches exactly or closely
+        val parts = t.split(Regex("\\s+"), limit = 2)
+        if (parts.size == 2) {
+            val truckRaw  = parts[0]
+            val statusRaw = parts[1].trim()
+            val truck = trucks.find { it.truckNumber.equals(truckRaw, ignoreCase = true) }
+            if (truck != null) {
+                val status = fuzzyMatchStatus(statusRaw, statuses)
+                if (status != null) {
+                    Log.d("VoiceCmd", "DirectParse short: truck=${truck.truckNumber} status=${status.statusName}")
+                    return VoiceCommand("truck_status", truck = truck.truckNumber, status = status.statusName)
+                }
+            }
+        }
+
+        return null // fall through to Gemini
+    }
+
+    // Fuzzy status matching — strips non-alphanumeric and compares
+    private fun fuzzyMatchStatus(raw: String, statuses: List<StatusValue>): StatusValue? {
+        // Exact match first
+        statuses.find { it.statusName.equals(raw, ignoreCase = true) }?.let { return it }
+
+        val cleanRaw = raw.lowercase().replace(Regex("[^a-z0-9]"), "")
+
+        // Known aliases
+        val alias = mapOf(
+            "indoor" to "In Door", "indoors" to "In Door", "inthedoor" to "In Door", "indock" to "In Door",
+            "putaway" to "Put Away", "putitaway" to "Put Away",
+            "onroute" to "On Route", "enroute" to "On Route", "ontheroad" to "On Route",
+            "infront" to "In Front", "upfront" to "In Front",
+            "inback" to "In Back", "outback" to "In Back",
+            "therock" to "The Rock",
+            "trailerarea" to "Trailer Area",
+            "eot" to "End Of Tote", "endoftote" to "End Of Tote", "endoftot" to "End Of Tote",
+            "eotplus1" to "EOT+1", "eot1" to "EOT+1",
+            "donefornight" to "Done for Night", "done" to "Done for Night", "finished" to "Done for Night",
+            "hundredpercent" to "100%", "100percent" to "100%",
+            "changetruck" to "Change Truck/Trailer", "changetrailer" to "Change Truck/Trailer"
+        )
+        alias[cleanRaw]?.let { aliasName ->
+            statuses.find { it.statusName == aliasName }?.let { return it }
+        }
+
+        // Alphanumeric strip match
+        statuses.find {
+            it.statusName.lowercase().replace(Regex("[^a-z0-9]"), "") == cleanRaw
+        }?.let { return it }
+
+        // Contains match
+        return statuses.find {
+            val c = it.statusName.lowercase().replace(Regex("[^a-z0-9]"), "")
+            c.contains(cleanRaw) || cleanRaw.contains(c)
+        }
+    }
+
+    // ── Step 3: fuzzy match for doors ─────────────────────────────────────────
+    fun fuzzyMatch(input: String?, candidates: List<String>): String? {
+        if (input == null) return null
+        val clean = input.lowercase().replace(Regex("[^a-z0-9]"), "")
+        candidates.firstOrNull { it.lowercase().replace(Regex("[^a-z0-9]"), "") == clean }?.let { return it }
+        return candidates.firstOrNull {
+            val c = it.lowercase().replace(Regex("[^a-z0-9]"), "")
+            c.contains(clean) || clean.contains(c)
+        }
+    }
+
+    // ── Main entry point ──────────────────────────────────────────────────────
     suspend fun parseCommand(
         text: String,
         trucks: List<LiveMovement>,
@@ -66,8 +172,13 @@ object VoiceCommandProcessor {
         statuses: List<StatusValue>
     ): VoiceCommand = withContext(Dispatchers.IO) {
 
-        val text = normalizeText(text, trucks)  // fix "170 dash 1" → "170-1" before AI sees it
+        val normalized = normalizeText(text, trucks)
+        Log.d("VoiceCmd", "Normalized: '$normalized'")
 
+        // Try direct Kotlin parse first — fast and reliable
+        directParse(normalized, trucks, statuses)?.let { return@withContext it }
+
+        // Fall back to Gemini for complex commands (door statuses, locations, etc.)
         val truckList    = trucks.map { it.truckNumber }.joinToString(", ")
         val doorList     = doors.map { it.doorName }.joinToString(", ")
         val statusList   = statuses.map { it.statusName }.joinToString(", ")
@@ -76,79 +187,30 @@ object VoiceCommandProcessor {
         val prompt = """
 You are a voice command parser for a truck dispatch system at a warehouse.
 
-AVAILABLE DATA (these are the ONLY valid values — never invent new ones):
+AVAILABLE DATA (only use these exact values):
 Active trucks: $truckList
 Loading doors (physical dock doors): $doorList
-Truck statuses (where a truck IS or what it's doing): $statusList
-Door statuses (state of a loading dock): $doorStatList
+Truck statuses: $statusList
+Door statuses: $doorStatList
 
-VOICE INPUT: "$text"
+VOICE INPUT: "$normalized"
 
-CONTEXT RULES — read carefully:
-- Truck statuses like "8", "9", "12A", "13A", "In Door", "On Route", "Ready", "Yard" etc. describe WHERE a truck is or what it's doing.
-- Loading doors like "13A", "8" etc. are PHYSICAL dock doors at the warehouse.
-- The word "door" before a number/letter means it's a LOADING DOOR (dock). No "door" prefix = likely a truck STATUS.
-- "EOT", "E O T", "end of tote" = door status "End Of Tote" — this applies to a LOADING DOOR.
-- If someone says "[truck] status [value]" the word "status" is just a connector word meaning "set status to" — the value after it IS the status
-- "148 status 8" = set truck 148 status to "8". "status" alone with nothing after = status is unknown (null)
-- If someone says "door 13A EOT" or "door 13A end of tote" → they mean set LOADING DOOR 13A's status to "End Of Tote" (door_status action).
-- If someone says "13A EOT" with NO "door" prefix → this is ambiguous. If 13A exists in loading doors list, treat as door_status. If not, treat as truck_status.
-
-IMPORTANT RULES:
-1. Return ONLY raw JSON, no markdown, no explanation.
-2. For "truck" field: ONLY use values that appear EXACTLY in the active trucks list. NEVER combine or concatenate numbers.
-   - "170 dash 1", "170 slash 1", "170 hyphen 1", "170 minus 1", "170 silent 1", "170 1" → "170-1" (if in list)
-   - "170 1" must NEVER become "171" — the space between numbers means they are SEPARATE (truck-trailer format)
-   - If you hear two numbers separated by a pause/space/word, check if "[first]-[second]" exists in the trucks list first
-   - Only use a plain number like "170" if "170" is in the list AND "170-1", "170-2" etc. are not a better match for the full phrase
-   - Never merge "170" + "1" into "1701" or "171" under any circumstance
-4. For "status" field: return the EXACT string from truck statuses or door statuses list. Use fuzzy/semantic matching:
-   - "E O T", "EOT", "end of tote" → "End Of Tote"
-   - "EOT+1", "e o t plus one" → "EOT+1"
-   - "loading" → "Loading"
-   - "change truck", "swap" → "Change Truck/Trailer"
-   - "waiting", "wait" → "Waiting"
-   - "done", "done for night" → "Done for Night"
-   - "hundred percent", "100 percent" → "100%"
-   - "in door", "indoor", "in the door", "indoors", "in dock" → "In Door"
-   - "put away", "putaway", "put it away" → "Put Away"
-   - "in front", "infront", "up front" → "In Front"
-   - "in back", "inback", "out back" → "In Back"
-   - "the rock" → "The Rock"
-   - "trailer area" → "Trailer Area"
-   - "yard" → "Yard"
-   - "missing" → "Missing"
-   - "gap" → "Gap"
-   - "transfer" → "Transfer"
-   - "end" → "END"
-   - "ignore" → "Ignore"
-   - A bare number like "8", "9", "12A", "13A" with no "door" prefix = truck STATUS
-5. action values:
-   - "truck_status": changing a TRUCK's status (e.g. "149 to status 8", "set 148 on route")
-   - "door_status": changing a LOADING DOOR's status (e.g. "door 13A EOT")
-   - "truck_location": moving a truck to a dock location
-   - "unknown": cannot determine
+RULES:
+1. Return ONLY raw JSON, no markdown.
+2. "truck" field: ONLY exact values from trucks list. Never combine numbers. "170 1" = "170-1" if in list.
+3. "door" field: ONLY exact values from loading doors list. Only for PHYSICAL dock doors.
+4. "status" field: EXACT string from status lists. Use semantic matching for speech variations.
+5. The word "status" between truck and value is a connector — "[truck] status [value]" means set truck's status to that value.
+6. "door [name] [doorStatus]" = door_status action. "[truck] [truckStatus]" = truck_status action.
 
 EXAMPLES:
 "door 13A EOT" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-"door 13A end of tote" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-"13A E O T" → {"action":"door_status","truck":null,"door":"13A","status":"End Of Tote","location":null}
-"148 status 8" → truck=148, "status 8" means set status TO "8" → {"action":"truck_status","truck":"148","door":null,"status":"8","location":null}
-"148 status" → no status value given, just the word status alone → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
-"149 to status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
-"149 status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
-"set 148 on route" → {"action":"truck_status","truck":"148","door":null,"status":"On Route","location":null}
-"148 in door" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
+"148 status 10" → {"action":"truck_status","truck":"148","door":null,"status":"10","location":null}
 "148 indoor" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
-"148 indoors" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
-"148 ready" → {"action":"truck_status","truck":"148","door":null,"status":"Ready","location":null}
-"231-1 yard" → {"action":"truck_status","truck":"231-1","door":null,"status":"Yard","location":null}
-"170 dash 1 on route" → {"action":"truck_status","truck":"170-1","door":null,"status":"On Route","location":null}
-"170 1 indoor" → {"action":"truck_status","truck":"170-1","door":null,"status":"In Door","location":null}
+"170-1 yard" → {"action":"truck_status","truck":"170-1","door":null,"status":"Yard","location":null}
 "door 8 loading" → {"action":"door_status","truck":null,"door":"8","status":"Loading","location":null}
-"148 status" → {"action":"truck_status","truck":"148","door":null,"status":null,"location":null}
 
-Now parse: "$text"
+Now parse: "$normalized"
         """.trimIndent()
 
         var clean = ""
@@ -156,56 +218,32 @@ Now parse: "$text"
             val body = buildJsonObject {
                 putJsonArray("contents") {
                     addJsonObject {
-                        putJsonArray("parts") {
-                            addJsonObject { put("text", prompt) }
-                        }
+                        putJsonArray("parts") { addJsonObject { put("text", prompt) } }
                     }
                 }
             }
-
             val response = http.post(GEMINI_URL) {
                 contentType(ContentType.Application.Json)
                 setBody(body.toString())
             }
-
             val root = json.parseToJsonElement(response.bodyAsText()).jsonObject
             val content = root["candidates"]?.jsonArray
-                ?.firstOrNull()?.jsonObject
-                ?.get("content")?.jsonObject
-                ?.get("parts")?.jsonArray
-                ?.firstOrNull()?.jsonObject
+                ?.firstOrNull()?.jsonObject?.get("content")?.jsonObject
+                ?.get("parts")?.jsonArray?.firstOrNull()?.jsonObject
                 ?.get("text")?.jsonPrimitive?.content
                 ?: return@withContext VoiceCommand("unknown")
 
-            clean = content.trim()
-                .removePrefix("```json").removePrefix("```")
-                .removeSuffix("```").trim()
-
+            clean = content.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val cmd = json.decodeFromString<VoiceCommand>(clean)
-            android.util.Log.d("VoiceCmd", "Input='$text' action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
+            Log.d("VoiceCmd", "Gemini: '$normalized' → action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
             cmd
         } catch (e: Exception) {
-            e.printStackTrace()
-            android.util.Log.e("VoiceCmd", "Parse failed for: '$text' raw=$clean")
+            Log.e("VoiceCmd", "Gemini failed for '$normalized' raw=$clean", e)
             VoiceCommand("unknown")
         }
     }
 
-    // Fuzzy match: find closest string from a list ignoring case, spaces, punctuation
-    private fun fuzzyMatch(input: String?, candidates: List<String>): String? {
-        if (input == null) return null
-        val clean = input.lowercase().replace(Regex("[^a-z0-9]"), "")
-        // Exact clean match first
-        candidates.firstOrNull {
-            it.lowercase().replace(Regex("[^a-z0-9]"), "") == clean
-        }?.let { return it }
-        // Contains match
-        return candidates.firstOrNull {
-            val c = it.lowercase().replace(Regex("[^a-z0-9]"), "")
-            c.contains(clean) || clean.contains(c)
-        }
-    }
-
+    // ── Execute parsed command ────────────────────────────────────────────────
     suspend fun executeCommand(
         cmd: VoiceCommand,
         trucks: List<LiveMovement>,
@@ -216,15 +254,14 @@ Now parse: "$text"
             when (cmd.action) {
                 "truck_status" -> {
                     val truck = trucks.find { it.truckNumber == cmd.truck }
-                        ?: trucks.find { it.truckNumber.contains(cmd.truck ?: "") }
-                        ?: return@withContext VoiceResult.Error("Truck '${cmd.truck}' not found. Available: ${trucks.map { it.truckNumber }.joinToString()}")
+                        ?: return@withContext VoiceResult.Error("Truck '${cmd.truck}' not found")
 
                     if (cmd.status == null)
-                        return@withContext VoiceResult.Error("Got truck ${truck.truckNumber} but no status — try: 'truck ${truck.truckNumber} on route'")
+                        return@withContext VoiceResult.Error("Got truck ${truck.truckNumber} but no status — say the status too, e.g. '${truck.truckNumber} yard'")
 
                     val status = statuses.find { it.statusName.equals(cmd.status, ignoreCase = true) }
-                        ?: statuses.find { fuzzyMatch(cmd.status, listOf(it.statusName)) != null }
-                        ?: return@withContext VoiceResult.Error("Status '${cmd.status}' not found. Available: ${statuses.map { it.statusName }.joinToString()}")
+                        ?: fuzzyMatchStatus(cmd.status, statuses)
+                        ?: return@withContext VoiceResult.Error("Status '${cmd.status}' not found. Options: ${statuses.map { it.statusName }.joinToString()}")
 
                     BadgerRepo.updateMovementStatus(truck.truckNumber, status.id)
                     VoiceResult.Success("Truck ${truck.truckNumber} → ${status.statusName}")
@@ -233,11 +270,11 @@ Now parse: "$text"
                 "door_status" -> {
                     val door = doors.find { it.doorName.equals(cmd.door, ignoreCase = true) }
                         ?: doors.find { fuzzyMatch(cmd.door, listOf(it.doorName)) != null }
-                        ?: return@withContext VoiceResult.Error("Door '${cmd.door}' not found. Available: ${doors.map { it.doorName }.joinToString()}")
+                        ?: return@withContext VoiceResult.Error("Door '${cmd.door}' not found. Options: ${doors.map { it.doorName }.joinToString()}")
 
                     val status = DOOR_STATUSES.find { it.equals(cmd.status, ignoreCase = true) }
                         ?: fuzzyMatch(cmd.status, DOOR_STATUSES)
-                        ?: return@withContext VoiceResult.Error("Status '${cmd.status}' not recognized. Available: ${DOOR_STATUSES.joinToString()}")
+                        ?: return@withContext VoiceResult.Error("Door status '${cmd.status}' not recognized. Options: ${DOOR_STATUSES.joinToString()}")
 
                     BadgerRepo.updateDoorStatus(door.id, status)
                     VoiceResult.Success("Door ${door.doorName} → $status")
@@ -245,9 +282,7 @@ Now parse: "$text"
 
                 "truck_location" -> {
                     val truck = trucks.find { it.truckNumber == cmd.truck }
-                        ?: trucks.find { it.truckNumber.contains(cmd.truck ?: "") }
                         ?: return@withContext VoiceResult.Error("Truck '${cmd.truck}' not found")
-
                     val loc = cmd.location ?: cmd.door
                     BadgerRepo.updateMovementLocation(truck.id, loc)
                     VoiceResult.Success("Truck ${truck.truckNumber} location → ${loc ?: "cleared"}")
@@ -257,6 +292,31 @@ Now parse: "$text"
             }
         } catch (e: Exception) {
             VoiceResult.Error("Error: ${e.message}")
+        }
+    }
+
+    private fun fuzzyMatchStatus(raw: String, statuses: List<StatusValue>): StatusValue? {
+        statuses.find { it.statusName.equals(raw, ignoreCase = true) }?.let { return it }
+        val cleanRaw = raw.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val alias = mapOf(
+            "indoor" to "In Door", "indoors" to "In Door", "inthedoor" to "In Door", "indock" to "In Door",
+            "putaway" to "Put Away", "putitaway" to "Put Away",
+            "onroute" to "On Route", "enroute" to "On Route",
+            "infront" to "In Front", "upfront" to "In Front",
+            "inback" to "In Back",
+            "therock" to "The Rock",
+            "trailerarea" to "Trailer Area",
+            "eot" to "End Of Tote", "endoftote" to "End Of Tote",
+            "eotplus1" to "EOT+1", "eot1" to "EOT+1",
+            "donefornight" to "Done for Night", "done" to "Done for Night",
+            "hundredpercent" to "100%",
+            "changetruck" to "Change Truck/Trailer", "changetrailer" to "Change Truck/Trailer"
+        )
+        alias[cleanRaw]?.let { name -> statuses.find { it.statusName == name }?.let { return it } }
+        statuses.find { it.statusName.lowercase().replace(Regex("[^a-z0-9]"), "") == cleanRaw }?.let { return it }
+        return statuses.find {
+            val c = it.statusName.lowercase().replace(Regex("[^a-z0-9]"), "")
+            c.contains(cleanRaw) || cleanRaw.contains(c)
         }
     }
 }
