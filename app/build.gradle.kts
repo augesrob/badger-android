@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -16,11 +18,11 @@ android {
         versionName = "4.0"
 
         // Secrets injected from local.properties (dev) or GitHub Secrets (CI)
-        val localProps = java.util.Properties().also { props ->
+        val localProps = Properties().also { props ->
             val f = rootProject.file("local.properties")
             if (f.exists()) props.load(f.inputStream())
         }
-        fun secret(key: String) = System.getenv(key) ?: localProps.getProperty(key) ?: ""
+        fun secret(key: String): String = System.getenv(key) ?: localProps.getProperty(key, "")
 
         buildConfigField("String", "SUPABASE_URL",  "\"${secret("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_KEY",  "\"${secret("SUPABASE_KEY")}\"")
