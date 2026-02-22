@@ -85,12 +85,10 @@ IMPORTANT RULES:
    - "waiting", "wait" → "Waiting"
    - "done", "done for night" → "Done for Night"
    - "hundred percent", "100 percent" → "100%"
-   - "in door" → "In Door"
-   - "put away" → "Put Away"
-   - "on route", "en route" → "On Route"
-   - "in front" → "In Front"
-   - "ready" → "Ready"
-   - "in back" → "In Back"
+   - "in door", "indoor", "in the door", "indoors", "in dock" → "In Door"
+   - "put away", "putaway", "put it away" → "Put Away"
+   - "in front", "infront", "up front" → "In Front"
+   - "in back", "inback", "out back" → "In Back"
    - "the rock" → "The Rock"
    - "trailer area" → "Trailer Area"
    - "yard" → "Yard"
@@ -114,6 +112,8 @@ EXAMPLES:
 "149 status 8" → {"action":"truck_status","truck":"149","door":null,"status":"8","location":null}
 "set 148 on route" → {"action":"truck_status","truck":"148","door":null,"status":"On Route","location":null}
 "148 in door" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
+"148 indoor" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
+"148 indoors" → {"action":"truck_status","truck":"148","door":null,"status":"In Door","location":null}
 "148 ready" → {"action":"truck_status","truck":"148","door":null,"status":"Ready","location":null}
 "231-1 yard" → {"action":"truck_status","truck":"231-1","door":null,"status":"Yard","location":null}
 "door 8 loading" → {"action":"door_status","truck":null,"door":"8","status":"Loading","location":null}
