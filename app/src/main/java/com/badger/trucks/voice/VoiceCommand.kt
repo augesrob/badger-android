@@ -64,13 +64,27 @@ object VoiceCommandProcessor {
     private fun directParse(
         text: String,
         trucks: List<LiveMovement>,
+        doors: List<LoadingDoor>,
         statuses: List<StatusValue>
     ): VoiceCommand? {
 
         val t = text.trim()
 
-        // Pattern: "[truck] status [statusValue]"
-        // Handles: "148 status 10", "148 status 12A", "148 status on route", etc.
+        // ── Door status: "door 14A loading", "door 13A EOT", "door 8 done for night" ──
+        val doorMatch = Regex("^door\\s+(\\S+)\\s+(.+)$", RegexOption.IGNORE_CASE).find(t)
+        if (doorMatch != null) {
+            val doorRaw   = doorMatch.groupValues[1]
+            val statusRaw = doorMatch.groupValues[2].trim()
+            val door = doors.find { it.doorName.equals(doorRaw, ignoreCase = true) }
+                ?: doors.find { it.doorName.lowercase().replace(Regex("[^a-z0-9]"), "") == doorRaw.lowercase().replace(Regex("[^a-z0-9]"), "") }
+            if (door != null) {
+                val status = fuzzyMatchDoorStatus(statusRaw)
+                Log.d("VoiceCmd", "DirectParse door: door=${door.doorName} status=$status (raw=$statusRaw)")
+                return VoiceCommand("door_status", door = door.doorName, status = status)
+            }
+        }
+
+        // ── Truck: "[truck] status [value]" ──
         val statusWordMatch = Regex("^(\\S+)\\s+status\\s+(.+)$", RegexOption.IGNORE_CASE).find(t)
         if (statusWordMatch != null) {
             val truckRaw  = statusWordMatch.groupValues[1]
@@ -83,7 +97,7 @@ object VoiceCommandProcessor {
             }
         }
 
-        // Pattern: "[truck] to [statusValue]" — "148 to 10", "148 to on route"
+        // ── Truck: "[truck] to [value]" ──
         val toMatch = Regex("^(\\S+)\\s+to\\s+(.+)$", RegexOption.IGNORE_CASE).find(t)
         if (toMatch != null) {
             val truckRaw  = toMatch.groupValues[1]
@@ -96,8 +110,7 @@ object VoiceCommandProcessor {
             }
         }
 
-        // Pattern: "[truck] [statusValue]" — "148 yard", "148 indoor", "148 ready"
-        // Only if status matches exactly or closely
+        // ── Truck: "[truck] [statusValue]" short form ──
         val parts = t.split(Regex("\\s+"), limit = 2)
         if (parts.size == 2) {
             val truckRaw  = parts[0]
@@ -112,7 +125,42 @@ object VoiceCommandProcessor {
             }
         }
 
-        return null // fall through to Gemini
+        return null
+    }
+
+    // Door status fuzzy match — covers all speech variations
+    private fun fuzzyMatchDoorStatus(raw: String): String? {
+        val clean = raw.lowercase().replace(Regex("[^a-z0-9+]"), "")
+        val alias = mapOf(
+            "loading"            to "Loading",
+            "load"               to "Loading",
+            "endoftote"          to "End Of Tote",
+            "eot"                to "End Of Tote",
+            "endoftot"           to "End Of Tote",
+            "eotplus1"           to "EOT+1",
+            "eot1"               to "EOT+1",
+            "eotplusone"         to "EOT+1",
+            "changetruck"        to "Change Truck/Trailer",
+            "changetrailer"      to "Change Truck/Trailer",
+            "changetruck/trailer" to "Change Truck/Trailer",
+            "swap"               to "Change Truck/Trailer",
+            "waiting"            to "Waiting",
+            "wait"               to "Waiting",
+            "donefornight"       to "Done for Night",
+            "done"               to "Done for Night",
+            "finished"           to "Done for Night",
+            "donetonight"        to "Done for Night",
+            "hundredpercent"     to "100%",
+            "100percent"         to "100%",
+            "100"                to "100%",
+            "full"               to "100%"
+        )
+        // Exact alias match
+        alias[clean]?.let { return it }
+        // Partial alias match (e.g. "end of tote" spoken slowly)
+        alias.entries.firstOrNull { clean.contains(it.key) || it.key.contains(clean) }?.let { return it.value }
+        // Direct match against DOOR_STATUSES
+        return DOOR_STATUSES.find { it.lowercase().replace(Regex("[^a-z0-9+]"), "") == clean }
     }
 
     // Fuzzy status matching — strips non-alphanumeric and compares
@@ -176,7 +224,7 @@ object VoiceCommandProcessor {
         Log.d("VoiceCmd", "Normalized: '$normalized'")
 
         // Try direct Kotlin parse first — fast and reliable
-        directParse(normalized, trucks, statuses)?.let { return@withContext it }
+        directParse(normalized, trucks, doors, statuses)?.let { return@withContext it }
 
         // Fall back to Gemini for complex commands (door statuses, locations, etc.)
         val truckList    = trucks.map { it.truckNumber }.joinToString(", ")
