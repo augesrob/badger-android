@@ -9,7 +9,6 @@ import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
-import io.ktor.utils.io.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -92,9 +91,11 @@ object AppUpdater {
         withContext(Dispatchers.IO) {
             try {
                 onProgress("Downloading ${info.assetName}...")
+                android.util.Log.d("AppUpdater", "Starting download of ${info.assetName} from asset ${info.assetId}")
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "⬇️ Downloading update ${info.tagName}...", android.widget.Toast.LENGTH_LONG).show()
+                }
 
-                // Use the API asset endpoint with Accept: application/octet-stream
-                // This correctly handles private repo auth without DownloadManager redirect issues
                 val apiAssetUrl = "https://api.github.com/repos/augesrob/badger-android/releases/assets/${info.assetId}"
 
                 val response: HttpResponse = http.get(apiAssetUrl) {
@@ -103,17 +104,23 @@ object AppUpdater {
                     header("User-Agent", "BadgerApp")
                 }
 
+                android.util.Log.d("AppUpdater", "Download response status: ${response.status}")
                 val file = File(context.getExternalFilesDir(null), info.assetName)
                 val bytes = response.readBytes()
+                android.util.Log.d("AppUpdater", "Downloaded ${bytes.size} bytes, saving to ${file.path}")
                 file.writeBytes(bytes)
 
                 onProgress("Installing...")
                 withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "✅ Download complete, installing...", android.widget.Toast.LENGTH_LONG).show()
                     installApk(context, file)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                onProgress("Download failed: ${e.message}")
+                android.util.Log.e("AppUpdater", "Download failed: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "❌ Update failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

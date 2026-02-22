@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
             val update = AppUpdater.checkForUpdate(currentVersion)
             if (update != null) {
                 pendingUpdate = update
-                // Auto-download and install in background
+                android.widget.Toast.makeText(this@MainActivity, "🔄 Update ${update.tagName} found, downloading...", android.widget.Toast.LENGTH_LONG).show()
                 AppUpdater.downloadAndInstall(this@MainActivity, update) { /* silent */ }
             }
         }
