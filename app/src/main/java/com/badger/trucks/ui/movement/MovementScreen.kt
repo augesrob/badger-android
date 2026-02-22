@@ -115,7 +115,8 @@ fun MovementScreen() {
                     }
                     voiceState = VoiceState.DONE
                     if (result is VoiceResult.Success) loadData()
-                    delay(3000)
+                    // Errors stay longer so user can read them
+                    delay(if (result is VoiceResult.Success) 2500L else 6000L)
                     voiceState = VoiceState.IDLE
                     voiceText = ""
                     voiceFeedback = ""
