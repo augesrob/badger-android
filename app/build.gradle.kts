@@ -27,7 +27,7 @@ android {
         buildConfigField("String", "SUPABASE_URL",  "\"${secret("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_KEY",  "\"${secret("SUPABASE_KEY")}\"")
         buildConfigField("String", "GEMINI_API_KEY","\"${secret("GEMINI_API_KEY")}\"")
-        buildConfigField("String", "GITHUB_TOKEN",  "\"${secret("GITHUB_TOKEN")}\"")
+        buildConfigField("String", "GITHUB_TOKEN",  "\"${secret("GH_TOKEN")}\"")
     }
 
     buildTypes {
