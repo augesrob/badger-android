@@ -137,6 +137,7 @@ fun BadgerMainApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
     // Update banner state
     var showUpdateBanner by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
@@ -166,7 +167,9 @@ fun BadgerMainApp() {
                             )
                             Row {
                                 TextButton(onClick = {
-                                    AppUpdater.downloadAndInstall(context, updateInfo) { /* status */ }
+                                    coroutineScope.launch {
+                                        AppUpdater.downloadAndInstall(context, updateInfo) { /* status */ }
+                                    }
                                     showUpdateBanner = false
                                 }) {
                                     Text("Install", color = androidx.compose.ui.graphics.Color.Black,
