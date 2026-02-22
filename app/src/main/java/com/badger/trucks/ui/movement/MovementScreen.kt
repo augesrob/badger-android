@@ -29,6 +29,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import android.content.Intent
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
@@ -336,25 +338,27 @@ fun MovementScreen() {
 fun TruckStatusDialog(truck: LiveMovement, statuses: List<StatusValue>, onDismiss: () -> Unit, onSelect: (StatusValue) -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
-            Column(Modifier.padding(20.dp)) {
+            Column(Modifier.padding(20.dp).heightIn(max = 520.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     Text("Truck ${truck.truckNumber}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = Amber500)
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close", tint = MutedText) }
                 }
                 Text("Select new status:", color = MutedText, fontSize = 13.sp)
                 Spacer(Modifier.height(12.dp))
-                statuses.forEach { s ->
-                    val isSelected = truck.statusName == s.statusName
-                    val color = try { Color(android.graphics.Color.parseColor(s.statusColor)) } catch (_: Exception) { MutedText }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent)
-                            .clickable { onSelect(s) }.padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
-                        Text(s.statusName, color = if (isSelected) color else LightText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 15.sp)
-                        if (isSelected) { Spacer(Modifier.weight(1f)); Text("✓", color = color, fontWeight = FontWeight.ExtraBold) }
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    statuses.forEach { s ->
+                        val isSelected = truck.statusName == s.statusName
+                        val color = try { Color(android.graphics.Color.parseColor(s.statusColor)) } catch (_: Exception) { MutedText }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent)
+                                .clickable { onSelect(s) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
+                            Text(s.statusName, color = if (isSelected) color else LightText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 15.sp)
+                            if (isSelected) { Spacer(Modifier.weight(1f)); Text("✓", color = color, fontWeight = FontWeight.ExtraBold) }
+                        }
                     }
                 }
             }
