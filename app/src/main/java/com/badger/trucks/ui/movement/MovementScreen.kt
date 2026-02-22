@@ -47,7 +47,9 @@ import com.badger.trucks.ui.theme.*
 import com.badger.trucks.voice.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
+import android.util.Log
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class DoorInfo(
@@ -169,14 +171,39 @@ fun MovementScreen() {
 
     LaunchedEffect(Unit) {
         loadData()
-        try {
-            val channel = BadgerRepo.realtimeChannel("movement-android")
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() } }
-            channel.subscribe()
-        } catch (e: Exception) { e.printStackTrace() }
 
-        // PTT — runs independently, not blocked by realtime collectors above
+        fun subscribeMovement() {
+            scope.launch {
+                try {
+                    val channel = BadgerRepo.realtimeChannel("movement-android")
+                    launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
+                    launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() } }
+                    channel.subscribe()
+                    Log.d("MovementScreen", "Realtime subscribed")
+
+                    // Heartbeat: reconnect if channel drops
+                    while (isActive) {
+                        delay(30_000L)
+                        val status = channel.status.value
+                        if (status != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
+                            Log.w("MovementScreen", "Realtime dropped (status=$status), reconnecting...")
+                            try { channel.unsubscribe() } catch (_: Exception) {}
+                            subscribeMovement()
+                            return@launch
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Log.e("MovementScreen", "Realtime error, retrying in 5s: ${e.message}")
+                    delay(5_000L)
+                    subscribeMovement()
+                }
+            }
+        }
+
+        subscribeMovement()
+
+        // PTT — runs independently
         try {
             pttManager.startListening()
             pttManager.onIncoming = {
