@@ -8,9 +8,11 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.util.Base64
 import android.util.Log
-import io.github.jan.supabase.realtime.RealtimeChannel
-import io.github.jan.supabase.realtime.broadcast
-import io.github.jan.supabase.realtime.broadcastFlow
+import com.badger.trucks.BadgerApp
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,59 +22,90 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 private const val TAG         = "PushToTalk"
 private const val SAMPLE_RATE = 8000
 private const val ENCODING    = AudioFormat.ENCODING_PCM_16BIT
-private const val EVENT       = "ptt"
+private const val TABLE       = "ptt_messages"
+
+@Serializable
+data class PttMessage(
+    val id: Long? = null,
+    val audio_b64: String,
+    val sender: String = "device"
+)
 
 class PushToTalkManager(
     private val context: Context,
     private val scope: CoroutineScope
 ) {
+    private val client get() = BadgerApp.supabase
     private var recorder: AudioRecord? = null
     private var recordJob: Job? = null
     private var listenJob: Job? = null
-    private var channel: RealtimeChannel? = null
+    private var listenChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     @Volatile private var recording = false
 
     var onIncoming: (() -> Unit)? = null
     var onDone: (() -> Unit)? = null
 
-    // ── Attach to an already-subscribed channel ───────────────────────────────
-    fun attach(ch: RealtimeChannel) {
-        channel = ch
+    // ── Start listening for incoming PTT via postgres realtime ────────────────
+    fun startListening() {
         listenJob?.cancel()
-        listenJob = ch.broadcastFlow<JsonObject>(EVENT)
-            .onEach { payload ->
-                try {
-                    val b64 = payload["audio"]?.jsonPrimitive?.content ?: return@onEach
-                    val pcm = Base64.decode(b64, Base64.DEFAULT)
-                    Log.d(TAG, "PTT received: ${pcm.size} bytes")
-                    scope.launch(Dispatchers.Main) { onIncoming?.invoke() }
-                    playPcm(pcm)
-                    scope.launch(Dispatchers.Main) { onDone?.invoke() }
-                } catch (e: Exception) {
-                    Log.e(TAG, "PTT receive error", e)
-                    scope.launch(Dispatchers.Main) { onDone?.invoke() }
+        listenChannel?.let { ch ->
+            scope.launch { try { ch.unsubscribe() } catch (_: Exception) {} }
+        }
+
+        val ch = client.channel("badger-ptt-listen")
+        listenChannel = ch
+
+        listenJob = ch.postgresChangeFlow<PostgresAction.Insert>("public") {
+            table = TABLE
+        }.onEach { action ->
+            try {
+                val row = action.decodeRecord<PttMessage>()
+                Log.d(TAG, "PTT incoming: ${row.audio_b64.length} b64 chars from ${row.sender}")
+                scope.launch(Dispatchers.Main) { onIncoming?.invoke() }
+                val pcm = Base64.decode(row.audio_b64, Base64.DEFAULT)
+                playPcm(pcm)
+                scope.launch(Dispatchers.Main) { onDone?.invoke() }
+                // Clean up old messages asynchronously
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        row.id?.let { id ->
+                            client.postgrest[TABLE].delete { filter { lt("id", id + 1) } }
+                        }
+                    } catch (_: Exception) {}
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "PTT receive error", e)
+                scope.launch(Dispatchers.Main) { onDone?.invoke() }
             }
-            .launchIn(scope)
-        Log.d(TAG, "PTT listening on channel")
+        }.launchIn(scope)
+
+        scope.launch {
+            try {
+                ch.subscribe()
+                Log.d(TAG, "PTT listening on $TABLE")
+            } catch (e: Exception) {
+                Log.e(TAG, "PTT subscribe error", e)
+            }
+        }
     }
 
-    // ── Start recording — streams audio into a growing buffer ─────────────────
+    // ── Start recording ───────────────────────────────────────────────────────
     fun startRecording() {
         stopRecording()
-        val minBuf = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            ENCODING
-        )
+
+        val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, ENCODING)
+        if (minBuf <= 0) {
+            Log.e(TAG, "getMinBufferSize failed: $minBuf")
+            return
+        }
+
         val rec = AudioRecord(
             MediaRecorder.AudioSource.MIC,
             SAMPLE_RATE,
@@ -82,64 +115,67 @@ class PushToTalkManager(
         )
 
         if (rec.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "AudioRecord failed to initialize")
+            Log.e(TAG, "AudioRecord failed to init — check RECORD_AUDIO permission")
             rec.release()
             return
         }
 
         recorder = rec
         recording = true
-        val chunks = mutableListOf<ByteArray>()
+        Log.d(TAG, "PTT recording started, minBuf=$minBuf")
         rec.startRecording()
-        Log.d(TAG, "PTT recording started")
 
         recordJob = scope.launch(Dispatchers.IO) {
+            val chunks = mutableListOf<ByteArray>()
             val buf = ByteArray(minBuf)
             while (isActive && recording) {
                 val read = rec.read(buf, 0, buf.size)
                 if (read > 0) chunks.add(buf.copyOf(read))
             }
-            // Stopped — send collected audio
+
             val total = chunks.sumOf { it.size }
+            Log.d(TAG, "PTT recording done: $total bytes in ${chunks.size} chunks")
+
             if (total > 0) {
-                val pcm = ByteArray(total)
-                var pos = 0
-                chunks.forEach { chunk -> chunk.copyInto(pcm, pos); pos += chunk.size }
-                val b64 = Base64.encodeToString(pcm, Base64.NO_WRAP)
-                Log.d(TAG, "PTT sending: ${pcm.size} bytes")
-                try {
-                    channel?.broadcast(EVENT, buildJsonObject { put("audio", b64) })
-                        ?: Log.w(TAG, "PTT: no channel")
-                } catch (e: Exception) {
-                    Log.e(TAG, "PTT broadcast error", e)
+                val pcm = ByteArray(total).also { out ->
+                    var pos = 0
+                    chunks.forEach { c -> c.copyInto(out, pos); pos += c.size }
                 }
+                val b64 = Base64.encodeToString(pcm, Base64.NO_WRAP)
+                Log.d(TAG, "PTT sending ${pcm.size} bytes as ${b64.length} b64 chars")
+                try {
+                    client.postgrest[TABLE].insert(
+                        buildJsonObject {
+                            put("audio_b64", b64)
+                            put("sender", "device")
+                        }
+                    )
+                    Log.d(TAG, "PTT sent OK")
+                } catch (e: Exception) {
+                    Log.e(TAG, "PTT send error", e)
+                }
+            } else {
+                Log.w(TAG, "PTT: no audio captured")
             }
         }
     }
 
-    // ── Stop recording — recordJob will finish and send ───────────────────────
+    // ── Stop recording ────────────────────────────────────────────────────────
     fun stopRecording() {
         recording = false
-        recorder?.let {
-            it.stop()
-            it.release()
-        }
+        recorder?.let { it.stop(); it.release() }
         recorder = null
-        // recordJob sees recording==false and exits its loop, then sends
     }
 
-    // ── Play PCM through speaker ──────────────────────────────────────────────
+    // ── Play raw PCM through speaker ──────────────────────────────────────────
     private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.IO) {
+        if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM, skipping"); return@withContext }
         try {
-            val minBuf = AudioTrack.getMinBufferSize(
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_OUT_MONO,
-                ENCODING
-            )
+            val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, ENCODING)
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -158,10 +194,12 @@ class PushToTalkManager(
             track.play()
 
             val durationMs = (pcm.size.toLong() * 1000L) / (SAMPLE_RATE * 2)
-            delay(durationMs + 300)
+            Log.d(TAG, "PTT playing ${pcm.size} bytes, ~${durationMs}ms")
+            delay(durationMs + 400)
 
             track.stop()
             track.release()
+            Log.d(TAG, "PTT playback done")
         } catch (e: Exception) {
             Log.e(TAG, "PTT playback error", e)
         }
@@ -171,5 +209,6 @@ class PushToTalkManager(
         stopRecording()
         recordJob?.cancel()
         listenJob?.cancel()
+        scope.launch { try { listenChannel?.unsubscribe() } catch (_: Exception) {} }
     }
 }

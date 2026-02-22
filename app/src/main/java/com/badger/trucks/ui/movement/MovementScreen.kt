@@ -171,12 +171,10 @@ fun MovementScreen() {
             channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() }
             channel.subscribe()
 
-            // PTT on its own shared channel
-            val ptt = BadgerRepo.pttChannel
-            pttManager.attach(ptt)
-            pttManager.onIncoming = { scope.launch { pttIncoming = true } }
-            pttManager.onDone    = { scope.launch { pttIncoming = false } }
-            try { ptt.subscribe() } catch (_: Exception) { /* already subscribed */ }
+            // PTT — listen for incoming audio via postgres realtime
+            pttManager.startListening()
+            pttManager.onIncoming = { pttIncoming = true }
+            pttManager.onDone    = { pttIncoming = false }
         } catch (e: Exception) { e.printStackTrace() }
     }
 
