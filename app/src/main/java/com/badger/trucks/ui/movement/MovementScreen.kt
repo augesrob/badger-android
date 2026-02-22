@@ -29,9 +29,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Intent
+import com.badger.trucks.voice.PushToTalkManager
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.theme.*
@@ -77,11 +80,21 @@ fun MovementScreen() {
 
     // Voice state
     var voiceState by remember { mutableStateOf(VoiceState.IDLE) }
-    var voiceText by remember { mutableStateOf("") }     // what was heard
-    var voiceFeedback by remember { mutableStateOf("") } // result message
+    var voiceText by remember { mutableStateOf("") }
+    var voiceFeedback by remember { mutableStateOf("") }
     val speechRecognizer = remember { BadgerSpeechRecognizer(context) }
 
-    DisposableEffect(Unit) { onDispose { speechRecognizer.destroy() } }
+    // PTT state
+    var pttRecording by remember { mutableStateOf(false) }
+    var pttIncoming by remember { mutableStateOf(false) }
+    val pttManager = remember { PushToTalkManager(context, scope) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            speechRecognizer.destroy()
+            pttManager.destroy()
+        }
+    }
 
     fun loadData() {
         scope.launch {
@@ -143,6 +156,15 @@ fun MovementScreen() {
             channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() }
             channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() }
             channel.subscribe()
+
+            // Attach PTT to the same channel
+            pttManager.attach(channel)
+            pttManager.onIncoming = {
+                scope.launch { pttIncoming = true }
+            }
+            pttManager.onDone = {
+                scope.launch { pttIncoming = false }
+            }
         } catch (e: Exception) { e.printStackTrace() }
     }
 
@@ -245,6 +267,23 @@ fun MovementScreen() {
                     }
                 }
 
+                // ─── PTT incoming banner ──────────────────────────────────
+                AnimatedVisibility(visible = pttIncoming) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF1A3A2A)
+                    ) {
+                        Text(
+                            "📻 Someone is talking...",
+                            modifier = Modifier.padding(12.dp),
+                            color = Color(0xFF4ADE80),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 // ─── Voice feedback banner ────────────────────────────────
                 AnimatedVisibility(visible = voiceState != VoiceState.IDLE) {
                     Surface(
@@ -302,33 +341,64 @@ fun MovementScreen() {
             }
         }
 
-        // ─── Floating mic button ──────────────────────────────────────────────
-        val pulseScale by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
-            initialValue = 1f, targetValue = 1.15f,
-            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-            label = "pulse"
-        )
-        val micScale = if (voiceState == VoiceState.LISTENING) pulseScale else 1f
-        val micColor = when (voiceState) {
-            VoiceState.LISTENING  -> Color(0xFFEF4444)
-            VoiceState.PROCESSING -> Color(0xFFF59E0B)
-            else -> Amber500
-        }
-
-        FloatingActionButton(
-            onClick = { startVoiceCommand() },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp)
-                .scale(micScale),
-            containerColor = micColor,
-            shape = CircleShape
+        // ─── FABs: PTT + Mic ─────────────────────────────────────────────────
+        Row(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                if (voiceState == VoiceState.LISTENING) Icons.Default.MicOff else Icons.Default.Mic,
-                contentDescription = "Voice command",
-                tint = Color.Black
+            // ── Push-to-talk button (hold to talk) ──
+            val pttColor = if (pttRecording) Color(0xFF4ADE80) else Color(0xFF374151)
+            val pttScale by rememberInfiniteTransition(label = "ptt-pulse").animateFloat(
+                initialValue = 1f, targetValue = if (pttRecording) 1.12f else 1f,
+                animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse),
+                label = "ptt-scale"
             )
+            FloatingActionButton(
+                onClick = {},
+                modifier = Modifier
+                    .scale(pttScale)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                pttRecording = true
+                                pttManager.startRecording()
+                                tryAwaitRelease()
+                                pttRecording = false
+                                pttManager.stopRecording()
+                            }
+                        )
+                    },
+                containerColor = pttColor,
+                shape = CircleShape
+            ) {
+                Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
+            }
+
+            // ── Voice command mic button ──
+            val micScale by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
+                initialValue = 1f, targetValue = 1.15f,
+                animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+                label = "pulse"
+            )
+            val micAnimScale = if (voiceState == VoiceState.LISTENING) micScale else 1f
+            val micColor = when (voiceState) {
+                VoiceState.LISTENING  -> Color(0xFFEF4444)
+                VoiceState.PROCESSING -> Color(0xFFF59E0B)
+                else -> Amber500
+            }
+            FloatingActionButton(
+                onClick = { startVoiceCommand() },
+                modifier = Modifier.scale(micAnimScale),
+                containerColor = micColor,
+                shape = CircleShape
+            ) {
+                Icon(
+                    if (voiceState == VoiceState.LISTENING) Icons.Default.MicOff else Icons.Default.Mic,
+                    contentDescription = "Voice command",
+                    tint = Color.Black
+                )
+            }
         }
     }
 }
