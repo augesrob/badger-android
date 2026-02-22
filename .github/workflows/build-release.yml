@@ -84,7 +84,6 @@ jobs:
           name: "Badger ${{ steps.version.outputs.tag }}"
           body: |
             Auto-built from commit ${{ github.sha }}
-            
             **Changes:** ${{ github.event.head_commit.message }}
           files: app/build/outputs/apk/debug/badger-${{ steps.version.outputs.tag }}.apk
           draft: false
