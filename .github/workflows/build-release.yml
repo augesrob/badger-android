@@ -3,8 +3,6 @@ name: Build & Release APK
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'app/build.gradle.kts'
   workflow_dispatch:
 
 permissions:
@@ -69,7 +67,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: ./gradlew assembleDebug
 
       - name: Rename APK
@@ -84,6 +81,7 @@ jobs:
           name: "Badger ${{ steps.version.outputs.tag }}"
           body: |
             Auto-built from commit ${{ github.sha }}
+            
             **Changes:** ${{ github.event.head_commit.message }}
           files: app/build/outputs/apk/debug/badger-${{ steps.version.outputs.tag }}.apk
           draft: false
