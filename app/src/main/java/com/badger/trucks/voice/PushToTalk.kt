@@ -3,6 +3,7 @@ package com.badger.trucks.voice
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -176,7 +177,12 @@ class PushToTalkManager(
     // ── Play raw PCM through speaker ──────────────────────────────────────────
     private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.IO) {
         if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM"); return@withContext }
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val wasSpeakerOn = audioManager.isSpeakerphoneOn
         try {
+            // Force speaker so audio comes out loud regardless of phone state
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager.isSpeakerphoneOn = true
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, ENCODING)
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -209,6 +215,10 @@ class PushToTalkManager(
             Log.d(TAG, "PTT playback done")
         } catch (e: Exception) {
             Log.e(TAG, "PTT playback error", e)
+        } finally {
+            // Restore audio state
+            audioManager.isSpeakerphoneOn = wasSpeakerOn
+            audioManager.mode = AudioManager.MODE_NORMAL
         }
     }
 
