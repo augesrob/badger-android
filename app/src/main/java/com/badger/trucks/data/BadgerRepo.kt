@@ -187,4 +187,7 @@ object BadgerRepo {
 
     // ===== REALTIME =====
     fun realtimeChannel(name: String) = client.channel(name)
+
+    // Shared PTT channel — single instance used by all screens
+    val pttChannel by lazy { client.channel("badger-ptt") }
 }

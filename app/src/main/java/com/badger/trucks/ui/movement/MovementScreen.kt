@@ -157,14 +157,12 @@ fun MovementScreen() {
             channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() }
             channel.subscribe()
 
-            // Attach PTT to the same channel
-            pttManager.attach(channel)
-            pttManager.onIncoming = {
-                scope.launch { pttIncoming = true }
-            }
-            pttManager.onDone = {
-                scope.launch { pttIncoming = false }
-            }
+            // PTT on its own shared channel
+            val ptt = BadgerRepo.pttChannel
+            pttManager.attach(ptt)
+            pttManager.onIncoming = { scope.launch { pttIncoming = true } }
+            pttManager.onDone    = { scope.launch { pttIncoming = false } }
+            ptt.subscribe()
         } catch (e: Exception) { e.printStackTrace() }
     }
 
