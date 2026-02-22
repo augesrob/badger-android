@@ -354,7 +354,12 @@ class BadgerSpeechRecognizer(private val context: Context) {
         onResult: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        recognizer?.destroy()
+        // Properly stop before destroying to avoid ERROR_RECOGNIZER_BUSY
+        try { recognizer?.stopListening() } catch (_: Exception) {}
+        try { recognizer?.cancel() } catch (_: Exception) {}
+        try { recognizer?.destroy() } catch (_: Exception) {}
+        recognizer = null
+
         recognizer = SpeechRecognizer.createSpeechRecognizer(context)
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -370,6 +375,16 @@ class BadgerSpeechRecognizer(private val context: Context) {
                 if (text != null) onResult(text) else onError("No speech detected")
             }
             override fun onError(error: Int) {
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    // Busy — destroy and retry after short delay
+                    Log.w("SpeechRecognizer", "Recognizer busy, retrying...")
+                    try { recognizer?.destroy() } catch (_: Exception) {}
+                    recognizer = null
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        startListening(onResult, onError)
+                    }, 300)
+                    return
+                }
                 onError(when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH       -> "No match — try again"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Timed out — try again"
