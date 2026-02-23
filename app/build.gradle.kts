@@ -30,11 +30,20 @@ android {
         buildConfigField("String", "GITHUB_TOKEN",  "\"${secret("GH_TOKEN")}\"")
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("badger.keystore")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "badger123"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "badger"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "badger123"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

@@ -3,6 +3,8 @@ name: Build & Release APK
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'app/build.gradle.kts'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +39,10 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/badger.keystore
+
       - name: Get current versionCode
         id: version
         run: |
@@ -62,17 +68,21 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build Release APK
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: ./gradlew assembleDebug
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
 
       - name: Rename APK
         run: |
-          mv app/build/outputs/apk/debug/app-debug.apk \
-             app/build/outputs/apk/debug/badger-${{ steps.version.outputs.tag }}.apk
+          mv app/build/outputs/apk/release/app-release.apk \
+             app/build/outputs/apk/release/badger-${{ steps.version.outputs.tag }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -81,8 +91,7 @@ jobs:
           name: "Badger ${{ steps.version.outputs.tag }}"
           body: |
             Auto-built from commit ${{ github.sha }}
-            
             **Changes:** ${{ github.event.head_commit.message }}
-          files: app/build/outputs/apk/debug/badger-${{ steps.version.outputs.tag }}.apk
+          files: app/build/outputs/apk/release/badger-${{ steps.version.outputs.tag }}.apk
           draft: false
           prerelease: false

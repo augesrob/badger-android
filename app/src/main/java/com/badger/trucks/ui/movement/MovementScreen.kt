@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
@@ -442,6 +443,36 @@ fun MovementScreen() {
                     contentDescription = "Voice command",
                     tint = Color.Black
                 )
+            }
+
+            // ── Fix All button ──
+            FloatingActionButton(
+                onClick = {
+                    Toast.makeText(context, "🔧 Restarting PTT & voice...", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        // Reset PTT
+                        pttManager.destroy()
+                        delay(500)
+                        pttManager.startListening()
+                        pttManager.onIncoming = {
+                            pttIncoming = true
+                            Toast.makeText(context, "📻 Incoming PTT...", Toast.LENGTH_SHORT).show()
+                        }
+                        pttManager.onDone = { pttIncoming = false }
+
+                        // Reset speech recognizer
+                        speechRecognizer.destroy()
+
+                        // Reload data
+                        loadData()
+
+                        Toast.makeText(context, "✅ PTT & voice restarted", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                containerColor = Color(0xFF374151),
+                shape = CircleShape
+            ) {
+                Icon(Icons.Default.Build, contentDescription = "Fix All", tint = Color.White)
             }
         }
     }
