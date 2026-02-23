@@ -105,7 +105,7 @@ object AppUpdater {
                 }
 
                 android.util.Log.d("AppUpdater", "Download response status: ${response.status}")
-                val file = File(context.getExternalFilesDir(null), info.assetName)
+                val file = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), info.assetName)
                 val bytes = response.readBytes()
                 android.util.Log.d("AppUpdater", "Downloaded ${bytes.size} bytes, saving to ${file.path}")
                 file.writeBytes(bytes)
