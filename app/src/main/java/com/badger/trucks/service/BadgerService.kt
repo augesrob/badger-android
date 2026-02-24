@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.view.WindowManager
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -66,6 +67,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady     = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private var screenLock: PowerManager.WakeLock? = null  // briefly wakes screen for command
     private var pttManager:     PushToTalkManager?  = null
     private var hotwordListener: HotwordListener?   = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
@@ -155,6 +157,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         tts?.stop(); tts?.shutdown()
         scope.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
+        releaseScreen()
     }
 
     override fun onInit(status: Int) {
@@ -172,8 +175,33 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
      * Plays a chime, shows the listening indicator in the UI,
      * then starts the command recognizer.
      */
+    private fun wakeScreen() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            screenLock?.let { if (it.isHeld) it.release() }
+            @Suppress("DEPRECATION")
+            screenLock = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "badger:screen_wake"
+            ).also {
+                it.acquire(8_000L)  // max 8s — enough for command + feedback
+            }
+            Log.d("BadgerService", "Screen woken for voice command")
+        } catch (e: Exception) {
+            Log.w("BadgerService", "Could not wake screen: ${e.message}")
+        }
+    }
+
+    private fun releaseScreen() {
+        try {
+            screenLock?.let { if (it.isHeld) it.release() }
+            screenLock = null
+        } catch (_: Exception) {}
+    }
+
     private fun onHotwordDetected() {
         Log.d("BadgerService", "Hotword detected — starting command listen")
+        wakeScreen()
         playActivationChime()
         _hotwordActive.value   = true
         _voiceProcessing.value = false
@@ -209,6 +237,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 // Clear feedback after a few seconds then resume hotword
                 delay(if (result is VoiceResult.Success) 2500L else 5000L)
                 _voiceFeedback.value = null
+                releaseScreen()
                 mainHandler.post { hotwordListener?.resume() }
 
             } catch (e: Exception) {
@@ -217,6 +246,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 _voiceFeedback.value   = "❌ Error: ${e.message}"
                 delay(3000)
                 _voiceFeedback.value = null
+                releaseScreen()
                 mainHandler.post { hotwordListener?.resume() }
             }
         }
@@ -230,6 +260,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         scope.launch {
             delay(2500)
             _voiceFeedback.value = null
+            releaseScreen()
             mainHandler.post { hotwordListener?.resume() }
         }
     }
