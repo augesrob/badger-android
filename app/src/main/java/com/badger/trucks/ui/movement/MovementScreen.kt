@@ -116,6 +116,20 @@ fun MovementScreen() {
         Toast.makeText(context, if (granted) "✅ Mic permission granted — press 📻 to talk" else "❌ Mic permission denied", Toast.LENGTH_LONG).show()
     }
 
+    fun loadData() {
+        scope.launch {
+            try {
+                trucks    = BadgerRepo.getLiveMovement()
+                printroom = BadgerRepo.getPrintroomEntries()
+                doors     = BadgerRepo.getLoadingDoors()
+                staging   = BadgerRepo.getStagingDoors()
+                statuses  = BadgerRepo.getStatuses()
+                tractors  = BadgerRepo.getTractors()
+            } catch (e: Exception) { e.printStackTrace() }
+            loading = false
+        }
+    }
+
     // Register for data-changed broadcasts from BadgerService (fired after voice commands)
     // so we reload immediately instead of waiting for the Realtime round-trip
     DisposableEffect(Unit) {
@@ -129,20 +143,6 @@ fun MovementScreen() {
         onDispose {
             speechRecognizer.destroy()
             try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
-        }
-    }
-
-    fun loadData() {
-        scope.launch {
-            try {
-                trucks    = BadgerRepo.getLiveMovement()
-                printroom = BadgerRepo.getPrintroomEntries()
-                doors     = BadgerRepo.getLoadingDoors()
-                staging   = BadgerRepo.getStagingDoors()
-                statuses  = BadgerRepo.getStatuses()
-                tractors  = BadgerRepo.getTractors()
-            } catch (e: Exception) { e.printStackTrace() }
-            loading = false
         }
     }
 
