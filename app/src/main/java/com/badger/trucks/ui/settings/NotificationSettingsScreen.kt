@@ -83,6 +83,27 @@ private val CHANNEL_ITEMS = listOf(
     ),
 )
 
+private val UI_ITEMS = listOf(
+    NotifItem(
+        NotificationPrefsStore.KEY_SHOW_PTT,
+        Icons.Default.Radio,
+        "Push-to-Talk Button",
+        "Show the 📻 PTT radio button on Live Movement"
+    ),
+    NotifItem(
+        NotificationPrefsStore.KEY_SHOW_MIC,
+        Icons.Default.Mic,
+        "Voice Command Button",
+        "Show the 🎙 mic button for voice commands"
+    ),
+    NotifItem(
+        NotificationPrefsStore.KEY_SHOW_FIXALL,
+        Icons.Default.Build,
+        "Fix All Button",
+        "Show the 🔧 wrench button to restart the service"
+    ),
+)
+
 @Composable
 fun NotificationSettingsScreen() {
     val context = LocalContext.current
@@ -173,6 +194,24 @@ fun NotificationSettingsScreen() {
                 checked = prefs[item.key] != false,
                 onToggle = { toggle(item.key) },
                 accentColor = Color(0xFF3B82F6)
+            )
+        }
+
+        Divider(color = DarkBorder, thickness = 1.dp)
+
+        // UI Buttons section
+        SectionLabel("Live Movement Buttons")
+        Text(
+            "Choose which action buttons appear on the Live Movement screen.",
+            fontSize = 12.sp,
+            color = Color.Gray
+        )
+        UI_ITEMS.forEach { item ->
+            NotifToggleRow(
+                item = item,
+                checked = prefs[item.key] != false,
+                onToggle = { toggle(item.key) },
+                accentColor = Color(0xFF8B5CF6)
             )
         }
 

@@ -43,6 +43,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
+import com.badger.trucks.service.NotificationPrefsStore
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.voice.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -78,6 +79,12 @@ fun MovementScreen() {
     var filter   by remember { mutableStateOf("all") }
     var loading  by remember { mutableStateOf(true) }
     var ttsOn    by remember { mutableStateOf(BadgerService.ttsEnabled) }
+
+    // Button visibility from settings
+    val prefs = remember { NotificationPrefsStore.getAll(context) }
+    val showPtt    = prefs[NotificationPrefsStore.KEY_SHOW_PTT]    != false
+    val showMic    = prefs[NotificationPrefsStore.KEY_SHOW_MIC]    != false
+    val showFixAll = prefs[NotificationPrefsStore.KEY_SHOW_FIXALL] != false
 
     var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }
     var doorStatusDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
@@ -314,7 +321,8 @@ fun MovementScreen() {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Push-to-talk: sends Intent to service instead of calling manager directly
+            // Push-to-talk
+            if (showPtt) {
             val pttColor = if (pttRecording) Color(0xFF4ADE80) else Color(0xFF374151)
             val pttScale by rememberInfiniteTransition(label = "ptt-pulse").animateFloat(
                 initialValue = 1f, targetValue = if (pttRecording) 1.12f else 1f,
@@ -348,8 +356,10 @@ fun MovementScreen() {
             ) {
                 Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
             }
+            } // end showPtt
 
             // Voice command mic
+            if (showMic) {
             val micScale by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
                 initialValue = 1f, targetValue = 1.15f,
                 animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
@@ -369,8 +379,10 @@ fun MovementScreen() {
                 Icon(if (hotwordActive) Icons.Default.MicOff else Icons.Default.Mic,
                     contentDescription = "Voice command", tint = Color.Black)
             }
+            } // end showMic
 
-            // Fix All — only needed if something truly goes wrong now, but kept as safety net
+            // Fix All
+            if (showFixAll) {
             FloatingActionButton(
                 onClick = {
                     Toast.makeText(context, "🔧 Restarting service...", Toast.LENGTH_SHORT).show()
@@ -388,6 +400,7 @@ fun MovementScreen() {
             ) {
                 Icon(Icons.Default.Build, contentDescription = "Fix All", tint = Color.White)
             }
+            } // end showFixAll
         }
     }
 }

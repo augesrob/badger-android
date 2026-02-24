@@ -26,6 +26,11 @@ object NotificationPrefsStore {
     // Features
     const val KEY_HOTWORD       = "feature_hotword" // always-on "Badger" wake word
 
+    // UI button visibility
+    const val KEY_SHOW_PTT      = "ui_show_ptt"      // Push-to-talk radio button
+    const val KEY_SHOW_MIC      = "ui_show_mic"      // Voice command mic button
+    const val KEY_SHOW_FIXALL   = "ui_show_fixall"   // Fix All wrench button
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -46,6 +51,9 @@ object NotificationPrefsStore {
             KEY_CHANNEL_APP  to p.getBoolean(KEY_CHANNEL_APP,  true),
             KEY_CHANNEL_TTS  to p.getBoolean(KEY_CHANNEL_TTS,  true),
             KEY_HOTWORD      to p.getBoolean(KEY_HOTWORD,      true),
+            KEY_SHOW_PTT     to p.getBoolean(KEY_SHOW_PTT,     true),
+            KEY_SHOW_MIC     to p.getBoolean(KEY_SHOW_MIC,     true),
+            KEY_SHOW_FIXALL  to p.getBoolean(KEY_SHOW_FIXALL,  true),
         )
     }
 
