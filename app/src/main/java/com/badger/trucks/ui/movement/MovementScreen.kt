@@ -35,9 +35,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
-import android.content.Context as AndroidContext
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -72,15 +69,18 @@ fun MovementScreen() {
     val scope   = rememberCoroutineScope()
     val context = LocalContext.current
 
-    var trucks   by remember { mutableStateOf<List<LiveMovement>>(emptyList()) }
+    // trucks and doors come directly from the service's live cache —
+    // updates are instant (optimistic on voice command, then confirmed by Realtime)
+    val trucks by BadgerService.liveTrucks.collectAsState()
+    val doors  by BadgerService.liveDoors.collectAsState()
     var printroom by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
-    var doors    by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
     var staging  by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var statuses by remember { mutableStateOf<List<StatusValue>>(emptyList()) }
     var tractors by remember { mutableStateOf<List<Tractor>>(emptyList()) }
     var search   by remember { mutableStateOf("") }
     var filter   by remember { mutableStateOf("all") }
-    var loading  by remember { mutableStateOf(true) }
+    // loading is false once the service has data (non-empty trucks from StateFlow)
+    val loading = trucks.isEmpty() && printroom.isEmpty()
     var ttsOn    by remember { mutableStateOf(BadgerService.ttsEnabled) }
 
     // Button visibility from settings
@@ -117,33 +117,20 @@ fun MovementScreen() {
     }
 
     fun loadData() {
+        // trucks and doors are owned by BadgerService.liveTrucks/liveDoors StateFlows —
+        // no need to fetch them here; they update automatically and instantly
         scope.launch {
             try {
-                trucks    = BadgerRepo.getLiveMovement()
                 printroom = BadgerRepo.getPrintroomEntries()
-                doors     = BadgerRepo.getLoadingDoors()
                 staging   = BadgerRepo.getStagingDoors()
                 statuses  = BadgerRepo.getStatuses()
                 tractors  = BadgerRepo.getTractors()
             } catch (e: Exception) { e.printStackTrace() }
-            loading = false
         }
     }
 
-    // Register for data-changed broadcasts from BadgerService (fired after voice commands)
-    // so we reload immediately instead of waiting for the Realtime round-trip
     DisposableEffect(Unit) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: AndroidContext?, intent: android.content.Intent?) {
-                if (intent?.action == BadgerService.ACTION_DATA_CHANGED) loadData()
-            }
-        }
-        val filter = IntentFilter(BadgerService.ACTION_DATA_CHANGED)
-        context.registerReceiver(receiver, filter, AndroidContext.RECEIVER_NOT_EXPORTED)
-        onDispose {
-            speechRecognizer.destroy()
-            try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
-        }
+        onDispose { speechRecognizer.destroy() }
     }
 
     fun startVoiceCommand() {

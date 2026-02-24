@@ -64,6 +64,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val hotwordActive:   StateFlow<Boolean>  = _hotwordActive.asStateFlow()
         val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
         val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
+
+        // Live truck/door data — updated optimistically on voice commands so UI
+        // can reflect changes instantly without its own network fetch
+        private val _liveTrucks = MutableStateFlow<List<com.badger.trucks.data.LiveMovement>>(emptyList())
+        private val _liveDoors  = MutableStateFlow<List<com.badger.trucks.data.LoadingDoor>>(emptyList())
+        val liveTrucks: StateFlow<List<com.badger.trucks.data.LiveMovement>> = _liveTrucks.asStateFlow()
+        val liveDoors:  StateFlow<List<com.badger.trucks.data.LoadingDoor>>  = _liveDoors.asStateFlow()
     }
 
     private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -81,9 +88,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     @Volatile private var lastHotwordMs = 0L
 
     // Cached data for voice commands (refreshed after each realtime event)
-    @Volatile private var cachedTrucks:   List<LiveMovement>  = emptyList()
-    @Volatile private var cachedDoors:    List<LoadingDoor>   = emptyList()
-    @Volatile private var cachedStatuses: List<StatusValue>   = emptyList()
+    @Volatile private var cachedStatuses: List<StatusValue> = emptyList()
+    // cachedTrucks/cachedDoors use setters to keep companion StateFlows in sync
+    private var cachedTrucks: List<LiveMovement> = emptyList()
+        set(value) { field = value; _liveTrucks.value = value }
+    private var cachedDoors: List<LoadingDoor> = emptyList()
+        set(value) { field = value; _liveDoors.value = value }
 
     // State snapshots for change detection
     private val knownStatuses   = mutableMapOf<String, String?>()
@@ -253,15 +263,36 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 _voiceProcessing.value = false
 
                 if (result is VoiceResult.Success) {
-                    // Refresh cache immediately so the incoming Realtime event doesn't
-                    // see a stale knownStatuses value and double-announce the same change
-                    refreshVoiceData()
-                    // Pre-stamp knownStatuses with the new values so Realtime diff is silent
-                    cachedTrucks.forEach { knownStatuses[it.truckNumber] = it.statusName }
-                    cachedDoors.forEach  { knownDoorStatus[it.doorName]  = it.doorStatus }
-                    // Broadcast to MovementScreen so it reloads NOW instead of waiting
-                    // for the Realtime round-trip (which can be 1-3 seconds late)
+                    // ── Optimistic update ────────────────────────────────────
+                    // Mutate the in-memory cache immediately from the parsed command
+                    // so the UI reflects the change NOW — no network round-trip needed.
+                    when (cmd.action) {
+                        "truck_status" -> {
+                            val newStatus = cachedStatuses.find { it.statusName == cmd.status }
+                            cachedTrucks = cachedTrucks.map { t ->
+                                if (t.truckNumber == cmd.truck)
+                                    t.copy(statusValues = LiveMovementStatus(
+                                        statusName  = newStatus?.statusName,
+                                        statusColor = newStatus?.statusColor
+                                    ))
+                                else t
+                            }
+                            // Pre-stamp so Realtime diff sees prev==curr and stays silent
+                            cmd.truck?.let { knownStatuses[it] = newStatus?.statusName }
+                        }
+                        "door_status" -> {
+                            cachedDoors = cachedDoors.map { d ->
+                                if (d.doorName == cmd.door) d.copy(doorStatus = cmd.status ?: "") else d
+                            }
+                            cmd.door?.let { knownDoorStatus[it] = cmd.status }
+                        }
+                    }
+
+                    // Broadcast immediately — UI reloads from cache, feels instant
                     sendBroadcast(Intent(ACTION_DATA_CHANGED))
+
+                    // Refresh from DB in background to pick up any server-side changes
+                    scope.launch { refreshVoiceData() }
                 }
 
                 // Speak result, then resume hotword only AFTER TTS finishes + buffer
