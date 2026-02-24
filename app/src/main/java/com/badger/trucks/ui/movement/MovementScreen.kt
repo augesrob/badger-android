@@ -35,6 +35,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.content.Context as AndroidContext
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -113,8 +116,20 @@ fun MovementScreen() {
         Toast.makeText(context, if (granted) "✅ Mic permission granted — press 📻 to talk" else "❌ Mic permission denied", Toast.LENGTH_LONG).show()
     }
 
+    // Register for data-changed broadcasts from BadgerService (fired after voice commands)
+    // so we reload immediately instead of waiting for the Realtime round-trip
     DisposableEffect(Unit) {
-        onDispose { speechRecognizer.destroy() }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: AndroidContext?, intent: android.content.Intent?) {
+                if (intent?.action == BadgerService.ACTION_DATA_CHANGED) loadData()
+            }
+        }
+        val filter = IntentFilter(BadgerService.ACTION_DATA_CHANGED)
+        context.registerReceiver(receiver, filter, AndroidContext.RECEIVER_NOT_EXPORTED)
+        onDispose {
+            speechRecognizer.destroy()
+            try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
+        }
     }
 
     fun loadData() {

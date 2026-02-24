@@ -6,6 +6,8 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -43,7 +45,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_PTT_START   = "com.badger.trucks.PTT_START"
         const val ACTION_PTT_STOP    = "com.badger.trucks.PTT_STOP"
         const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
-        const val ACTION_MANUAL_VOICE = "com.badger.trucks.MANUAL_VOICE"
+        const val ACTION_MANUAL_VOICE  = "com.badger.trucks.MANUAL_VOICE"
+        const val ACTION_DATA_CHANGED  = "com.badger.trucks.DATA_CHANGED"  // tells UI to reload
 
         var ttsEnabled = true
         var isRunning  = false
@@ -249,7 +252,17 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 _voiceFeedback.value   = feedback
                 _voiceProcessing.value = false
 
-                if (result is VoiceResult.Success) refreshVoiceData()
+                if (result is VoiceResult.Success) {
+                    // Refresh cache immediately so the incoming Realtime event doesn't
+                    // see a stale knownStatuses value and double-announce the same change
+                    refreshVoiceData()
+                    // Pre-stamp knownStatuses with the new values so Realtime diff is silent
+                    cachedTrucks.forEach { knownStatuses[it.truckNumber] = it.statusName }
+                    cachedDoors.forEach  { knownDoorStatus[it.doorName]  = it.doorStatus }
+                    // Broadcast to MovementScreen so it reloads NOW instead of waiting
+                    // for the Realtime round-trip (which can be 1-3 seconds late)
+                    sendBroadcast(Intent(ACTION_DATA_CHANGED))
+                }
 
                 // Speak result, then resume hotword only AFTER TTS finishes + buffer
                 // This prevents the hotword mic picking up our own TTS readback
