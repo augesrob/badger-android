@@ -75,6 +75,12 @@ private val CHANNEL_ITEMS = listOf(
         "Text-to-Speech",
         "Announce changes aloud via TTS"
     ),
+    NotifItem(
+        NotificationPrefsStore.KEY_HOTWORD,
+        Icons.Default.Mic,
+        ""Badger" Wake Word",
+        "Say \"Badger\" to issue a voice command hands-free"
+    ),
 )
 
 @Composable

@@ -3,14 +3,26 @@ package com.badger.trucks.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.badger.trucks.MainActivity
 import com.badger.trucks.data.BadgerRepo
+import com.badger.trucks.data.LoadingDoor
+import com.badger.trucks.data.LiveMovement
+import com.badger.trucks.data.StatusValue
+import com.badger.trucks.voice.BadgerSpeechRecognizer
+import com.badger.trucks.voice.HotwordListener
 import com.badger.trucks.voice.PushToTalkManager
+import com.badger.trucks.voice.VoiceCommandProcessor
+import com.badger.trucks.voice.VoiceResult
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.*
@@ -28,23 +40,40 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_TOGGLE_TTS  = "com.badger.trucks.TOGGLE_TTS"
         const val ACTION_PTT_START   = "com.badger.trucks.PTT_START"
         const val ACTION_PTT_STOP    = "com.badger.trucks.PTT_STOP"
-        const val ACTION_STOP        = "com.badger.trucks.STOP_SERVICE"
+        const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
+        const val ACTION_MANUAL_VOICE = "com.badger.trucks.MANUAL_VOICE"
 
         var ttsEnabled = true
         var isRunning  = false
 
-        // UI observes these to show PTT state without holding a reference to PTT manager
+        // PTT state
         private val _pttRecording = MutableStateFlow(false)
         private val _pttIncoming  = MutableStateFlow(false)
         val pttRecording: StateFlow<Boolean> = _pttRecording.asStateFlow()
         val pttIncoming:  StateFlow<Boolean> = _pttIncoming.asStateFlow()
+
+        // Hotword / voice command state — UI observes these
+        private val _hotwordActive   = MutableStateFlow(false)
+        private val _voiceProcessing = MutableStateFlow(false)
+        private val _voiceFeedback   = MutableStateFlow<String?>(null)
+        val hotwordActive:   StateFlow<Boolean>  = _hotwordActive.asStateFlow()
+        val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
+        val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val mainHandler  = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
-    private var ttsReady = false
+    private var ttsReady     = false
     private var wakeLock: PowerManager.WakeLock? = null
-    private var pttManager: PushToTalkManager? = null
+    private var pttManager:     PushToTalkManager?  = null
+    private var hotwordListener: HotwordListener?   = null
+    private var commandRecognizer: BadgerSpeechRecognizer? = null
+
+    // Cached data for voice commands (refreshed after each realtime event)
+    @Volatile private var cachedTrucks:   List<LiveMovement>  = emptyList()
+    @Volatile private var cachedDoors:    List<LoadingDoor>   = emptyList()
+    @Volatile private var cachedStatuses: List<StatusValue>   = emptyList()
 
     // State snapshots for change detection
     private val knownStatuses   = mutableMapOf<String, String?>()
@@ -57,40 +86,42 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         super.onCreate()
         isRunning = true
 
-        // Acquire PARTIAL_WAKE_LOCK — keeps CPU running when screen is off.
-        // This is the key fix: without this, coroutines pause and channels drop.
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "badger:ptt_wakelock"
-        ).also { it.acquire() }
-        Log.d("BadgerService", "WakeLock acquired")
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:ptt_wakelock").also { it.acquire() }
 
         NotificationHelper.createAllChannels(this)
         startForeground(NOTIF_ID, buildServiceNotification())
 
         tts = TextToSpeech(this, this)
 
-        // PTT is owned by the service — survives screen off and background
+        // PTT
         pttManager = PushToTalkManager(this, scope).also { mgr ->
             mgr.onIncoming = {
                 _pttIncoming.value = true
-                // Also fire a heads-up notification so user sees it even on lock screen
-                NotificationHelper.postNotification(
-                    context   = this,
-                    channelId = NotificationHelper.CHANNEL_SYSTEM,
-                    title     = "📻 Incoming PTT",
-                    body      = "Someone is talking on the radio",
-                    tag       = "ptt_incoming"
-                )
+                NotificationHelper.postNotification(this, NotificationHelper.CHANNEL_SYSTEM, "📻 Incoming PTT", "Someone is talking on the radio", "ptt_incoming")
             }
-            mgr.onDone = {
-                _pttIncoming.value = false
-            }
+            mgr.onDone = { _pttIncoming.value = false }
             mgr.startListening()
         }
 
+        // Command recognizer (shared instance, reused after each hotword)
+        commandRecognizer = BadgerSpeechRecognizer(this)
+
+        // Hotword — lives on main thread as required by SpeechRecognizer
+        val hotwordEnabled = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_HOTWORD)
+        mainHandler.post {
+            hotwordListener = HotwordListener(this).also { hw ->
+                hw.onHotwordDetected = { onHotwordDetected() }
+                if (hotwordEnabled) hw.start()
+                else Log.d("BadgerService", "Hotword disabled by user pref")
+            }
+        }
+
+        // Preload data for voice commands
+        scope.launch { refreshVoiceData() }
+
         startRealtimeSync()
+        Log.d("BadgerService", "Service created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -100,15 +131,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 updateServiceNotification()
                 if (ttsEnabled) speak("Text to speech enabled")
             }
-            // PTT record start/stop triggered from UI via Intent
-            ACTION_PTT_START -> {
-                _pttRecording.value = true
-                pttManager?.startRecording()
-            }
-            ACTION_PTT_STOP -> {
-                _pttRecording.value = false
-                pttManager?.stopRecording()
-            }
+            ACTION_PTT_START -> { _pttRecording.value = true;  pttManager?.startRecording() }
+            ACTION_PTT_STOP  -> { _pttRecording.value = false; pttManager?.stopRecording()  }
+            ACTION_MANUAL_VOICE -> mainHandler.post { onHotwordDetected() }
             ACTION_STOP -> stopSelf()
         }
         return START_STICKY
@@ -119,13 +144,17 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
-        _pttRecording.value = false
-        _pttIncoming.value  = false
+        _pttRecording.value  = false
+        _pttIncoming.value   = false
+        _hotwordActive.value = false
+        _voiceProcessing.value = false
+        _voiceFeedback.value   = null
         pttManager?.destroy()
+        mainHandler.post { hotwordListener?.destroy() }
+        commandRecognizer?.destroy()
         tts?.stop(); tts?.shutdown()
         scope.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
-        Log.d("BadgerService", "WakeLock released")
     }
 
     override fun onInit(status: Int) {
@@ -133,6 +162,95 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             tts?.language = Locale.US
             ttsReady = true
             speak("Badger live monitoring active")
+        }
+    }
+
+    // ── Hotword flow ──────────────────────────────────────────────────────────
+
+    /**
+     * Called on the main thread when "badger" is detected.
+     * Plays a chime, shows the listening indicator in the UI,
+     * then starts the command recognizer.
+     */
+    private fun onHotwordDetected() {
+        Log.d("BadgerService", "Hotword detected — starting command listen")
+        playActivationChime()
+        _hotwordActive.value   = true
+        _voiceProcessing.value = false
+        _voiceFeedback.value   = null
+
+        commandRecognizer?.startListening(
+            onResult = { text -> onCommandResult(text) },
+            onError  = { err  -> onCommandError(err)  }
+        )
+    }
+
+    private fun onCommandResult(text: String) {
+        Log.d("BadgerService", "Voice command: '$text'")
+        _hotwordActive.value   = false
+        _voiceProcessing.value = true
+
+        scope.launch {
+            try {
+                val cmd    = VoiceCommandProcessor.parseCommand(text, cachedTrucks, cachedDoors, cachedStatuses)
+                val result = VoiceCommandProcessor.executeCommand(cmd, cachedTrucks, cachedDoors, cachedStatuses)
+
+                val feedback = when (result) {
+                    is VoiceResult.Success -> { speak(result.description); "✅ ${result.description}" }
+                    is VoiceResult.Error   -> { speak("Sorry, ${result.message}"); "❌ ${result.message}" }
+                    VoiceResult.Unknown    -> { speak("I didn't understand that"); "🤔 Didn't understand: \"$text\"" }
+                }
+
+                _voiceFeedback.value   = feedback
+                _voiceProcessing.value = false
+
+                if (result is VoiceResult.Success) refreshVoiceData()
+
+                // Clear feedback after a few seconds then resume hotword
+                delay(if (result is VoiceResult.Success) 2500L else 5000L)
+                _voiceFeedback.value = null
+                mainHandler.post { hotwordListener?.resume() }
+
+            } catch (e: Exception) {
+                Log.e("BadgerService", "Voice command error", e)
+                _voiceProcessing.value = false
+                _voiceFeedback.value   = "❌ Error: ${e.message}"
+                delay(3000)
+                _voiceFeedback.value = null
+                mainHandler.post { hotwordListener?.resume() }
+            }
+        }
+    }
+
+    private fun onCommandError(err: String) {
+        Log.w("BadgerService", "Voice command error: $err")
+        _hotwordActive.value   = false
+        _voiceProcessing.value = false
+        _voiceFeedback.value   = "❌ $err"
+        scope.launch {
+            delay(2500)
+            _voiceFeedback.value = null
+            mainHandler.post { hotwordListener?.resume() }
+        }
+    }
+
+    private fun playActivationChime() {
+        try {
+            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+            mainHandler.postDelayed({ toneGen.release() }, 200)
+        } catch (e: Exception) {
+            Log.w("BadgerService", "Chime failed: ${e.message}")
+        }
+    }
+
+    private suspend fun refreshVoiceData() {
+        try {
+            cachedTrucks   = BadgerRepo.getLiveMovement()
+            cachedDoors    = BadgerRepo.getLoadingDoors()
+            cachedStatuses = BadgerRepo.getStatuses()
+        } catch (e: Exception) {
+            Log.w("BadgerService", "refreshVoiceData error: ${e.message}")
         }
     }
 
@@ -162,17 +280,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun startRealtimeSync() {
         scope.launch {
             try {
-                // Snapshot current state — don't alert on first connect
                 BadgerRepo.getLiveMovement().forEach { knownStatuses[it.truckNumber] = it.statusName }
                 BadgerRepo.getLoadingDoors().forEach { knownDoorStatus[it.doorName]  = it.doorStatus }
                 BadgerRepo.getStagingDoors().forEach { knownPreshift[it.id]          = Pair(it.inFront, it.inBack) }
 
                 val channel = BadgerRepo.realtimeChannel("badger-service-realtime")
 
-                // Truck status
-                channel.postgresChangeFlow<PostgresAction>("public") {
-                    table = "live_movement"
-                }.onEach {
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
                     try {
                         val updated = BadgerRepo.getLiveMovement()
                         updated.forEach { truck ->
@@ -181,74 +295,55 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                             if (prev != null && curr != null && prev != curr) {
                                 speak("Truck ${truck.truckNumber}, $curr")
                                 if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS)) {
-                                    pushNotif(
-                                        NotificationHelper.CHANNEL_TRUCK_STATUS,
-                                        "🚚 Truck ${truck.truckNumber}",
-                                        "$prev → $curr${truck.currentLocation?.let { " @ $it" } ?: ""}",
-                                        "truck_${truck.truckNumber}"
-                                    )
+                                    pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS, "🚚 Truck ${truck.truckNumber}",
+                                        "$prev → $curr${truck.currentLocation?.let { " @ $it" } ?: ""}", "truck_${truck.truckNumber}")
                                 }
                             }
                             knownStatuses[truck.truckNumber] = curr
                         }
-                        val curr = updated.map { it.truckNumber }.toSet()
-                        knownStatuses.keys.filter { it !in curr }.forEach { knownStatuses.remove(it) }
-                    } catch (e: Exception) { Log.e("BadgerService", "Truck refresh error: ${e.message}") }
+                        val currSet = updated.map { it.truckNumber }.toSet()
+                        knownStatuses.keys.filter { it !in currSet }.forEach { knownStatuses.remove(it) }
+                        cachedTrucks = updated
+                    } catch (e: Exception) { Log.e("BadgerService", "Truck refresh: ${e.message}") }
                 }.launchIn(scope)
 
-                // Door status
-                channel.postgresChangeFlow<PostgresAction>("public") {
-                    table = "loading_doors"
-                }.onEach {
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.onEach {
                     try {
-                        BadgerRepo.getLoadingDoors().forEach { door ->
+                        val updated = BadgerRepo.getLoadingDoors()
+                        updated.forEach { door ->
                             val prev = knownDoorStatus[door.doorName]
                             val curr = door.doorStatus
                             if (prev != null && curr != prev && curr.isNotBlank()) {
                                 speak("Door ${door.doorName}, $curr")
                                 if (canNotify(NotificationPrefsStore.KEY_DOOR_STATUS)) {
-                                    pushNotif(
-                                        NotificationHelper.CHANNEL_DOOR_STATUS,
-                                        "🚪 Door ${door.doorName}",
-                                        "$prev → $curr",
-                                        "door_${door.doorName}"
-                                    )
+                                    pushNotif(NotificationHelper.CHANNEL_DOOR_STATUS, "🚪 Door ${door.doorName}", "$prev → $curr", "door_${door.doorName}")
                                 }
                             }
                             knownDoorStatus[door.doorName] = curr
                         }
-                    } catch (e: Exception) { Log.e("BadgerService", "Door refresh error: ${e.message}") }
+                        cachedDoors = updated
+                    } catch (e: Exception) { Log.e("BadgerService", "Door refresh: ${e.message}") }
                 }.launchIn(scope)
 
-                // PreShift
-                channel.postgresChangeFlow<PostgresAction>("public") {
-                    table = "staging_doors"
-                }.onEach {
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "staging_doors" }.onEach {
                     try {
                         val changes = mutableListOf<String>()
                         BadgerRepo.getStagingDoors().forEach { door ->
                             val prev = knownPreshift[door.id]
                             val curr = Pair(door.inFront, door.inBack)
                             if (prev != null && prev != curr) {
-                                if (prev.first != door.inFront)
-                                    changes.add("${door.doorLabel} front: ${prev.first ?: "empty"} → ${door.inFront ?: "empty"}")
-                                if (prev.second != door.inBack)
-                                    changes.add("${door.doorLabel} back: ${prev.second ?: "empty"} → ${door.inBack ?: "empty"}")
+                                if (prev.first  != door.inFront) changes.add("${door.doorLabel} front: ${prev.first ?: "empty"} → ${door.inFront ?: "empty"}")
+                                if (prev.second != door.inBack)  changes.add("${door.doorLabel} back: ${prev.second ?: "empty"} → ${door.inBack ?: "empty"}")
                             }
                             knownPreshift[door.id] = curr
                         }
                         if (changes.isNotEmpty()) {
                             speak("Preshift updated")
                             if (canNotify(NotificationPrefsStore.KEY_PRESHIFT)) {
-                                pushNotif(
-                                    NotificationHelper.CHANNEL_PRESHIFT,
-                                    "📋 PreShift Updated",
-                                    changes.joinToString("\n"),
-                                    "preshift_change"
-                                )
+                                pushNotif(NotificationHelper.CHANNEL_PRESHIFT, "📋 PreShift Updated", changes.joinToString("\n"), "preshift_change")
                             }
                         }
-                    } catch (e: Exception) { Log.e("BadgerService", "PreShift refresh error: ${e.message}") }
+                    } catch (e: Exception) { Log.e("BadgerService", "PreShift refresh: ${e.message}") }
                 }.launchIn(scope)
 
                 channel.subscribe()
@@ -265,22 +360,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // ── Foreground notification ───────────────────────────────────────────────
 
     private fun buildServiceNotification(): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
-        )
-        val ttsToggleIntent = PendingIntent.getService(
-            this, 1,
+        val openIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val ttsToggleIntent = PendingIntent.getService(this, 1,
             Intent(this, BadgerService::class.java).apply { action = ACTION_TOGGLE_TTS },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val stopIntent = PendingIntent.getService(
-            this, 2,
-            Intent(this, BadgerService::class.java).apply { action = ACTION_STOP },
-            PendingIntent.FLAG_IMMUTABLE
-        )
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val stopIntent = PendingIntent.getService(this, 2,
+            Intent(this, BadgerService::class.java).apply { action = ACTION_STOP }, PendingIntent.FLAG_IMMUTABLE)
+
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_SERVICE)
             .setContentTitle("🦡 Badger Live")
-            .setContentText("Monitoring • PTT ready • TTS ${if (ttsEnabled) "ON 🔊" else "OFF 🔇"}")
+            .setContentText("Say \"Badger\" to issue a command • TTS ${if (ttsEnabled) "ON 🔊" else "OFF 🔇"}")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(openIntent)
             .setOngoing(true)

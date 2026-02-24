@@ -23,6 +23,9 @@ object NotificationPrefsStore {
     const val KEY_CHANNEL_APP   = "channel_app"   // heads-up push notification
     const val KEY_CHANNEL_TTS   = "channel_tts"   // text-to-speech announcement
 
+    // Features
+    const val KEY_HOTWORD       = "feature_hotword" // always-on "Badger" wake word
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -42,6 +45,7 @@ object NotificationPrefsStore {
             KEY_SYSTEM       to p.getBoolean(KEY_SYSTEM,       true),
             KEY_CHANNEL_APP  to p.getBoolean(KEY_CHANNEL_APP,  true),
             KEY_CHANNEL_TTS  to p.getBoolean(KEY_CHANNEL_TTS,  true),
+            KEY_HOTWORD      to p.getBoolean(KEY_HOTWORD,      true),
         )
     }
 

@@ -45,6 +45,7 @@ import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.voice.*
+import androidx.core.content.ContextCompat
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
@@ -61,8 +62,6 @@ data class DoorInfo(
     val pallets: Int,
     val notes: String
 )
-
-enum class VoiceState { IDLE, LISTENING, PROCESSING, DONE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,9 +83,11 @@ fun MovementScreen() {
     var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }
     var doorStatusDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
 
-    var voiceState    by remember { mutableStateOf(VoiceState.IDLE) }
-    var voiceText     by remember { mutableStateOf("") }
-    var voiceFeedback by remember { mutableStateOf("") }
+    // Voice state — observe from service so hotword and mic button share same UI
+    val hotwordActive   by BadgerService.hotwordActive.collectAsState()
+    val voiceProcessing by BadgerService.voiceProcessing.collectAsState()
+    val voiceFeedback   by BadgerService.voiceFeedback.collectAsState()
+    // Local speech recognizer only for the manual mic FAB
     val speechRecognizer = remember { BadgerSpeechRecognizer(context) }
 
     // ── PTT state comes from the service — always alive even when screen is off ──
@@ -108,7 +109,6 @@ fun MovementScreen() {
 
     DisposableEffect(Unit) {
         onDispose { speechRecognizer.destroy() }
-        // Note: no pttManager.destroy() here — PTT lives in BadgerService now
     }
 
     fun loadData() {
@@ -126,33 +126,12 @@ fun MovementScreen() {
     }
 
     fun startVoiceCommand() {
-        if (voiceState != VoiceState.IDLE) return
-        voiceState = VoiceState.LISTENING
-        voiceText = ""; voiceFeedback = ""
-        speechRecognizer.startListening(
-            onResult = { text ->
-                voiceText = text
-                voiceState = VoiceState.PROCESSING
-                scope.launch {
-                    val cmd    = VoiceCommandProcessor.parseCommand(text, trucks, doors, statuses)
-                    val result = VoiceCommandProcessor.executeCommand(cmd, trucks, doors, statuses)
-                    voiceFeedback = when (result) {
-                        is VoiceResult.Success -> result.description
-                        is VoiceResult.Error   -> "❌ ${result.message}"
-                        VoiceResult.Unknown    -> "🤔 Didn't understand: \"$text\""
-                    }
-                    voiceState = VoiceState.DONE
-                    if (result is VoiceResult.Success) loadData()
-                    delay(if (result is VoiceResult.Success) 2500L else 6000L)
-                    voiceState = VoiceState.IDLE; voiceText = ""; voiceFeedback = ""
-                }
-            },
-            onError = { err ->
-                voiceFeedback = "❌ $err"
-                voiceState = VoiceState.DONE
-                scope.launch { delay(2500); voiceState = VoiceState.IDLE; voiceFeedback = "" }
-            }
-        )
+        // If hotword or processing already active, ignore tap
+        if (hotwordActive || voiceProcessing) return
+        // Trigger the same hotword-detected flow in the service so UI state is unified
+        context.startService(Intent(context, BadgerService::class.java).apply {
+            action = BadgerService.ACTION_MANUAL_VOICE
+        })
     }
 
     LaunchedEffect(Unit) {
@@ -229,12 +208,13 @@ fun MovementScreen() {
         })
     }
 
-    val voiceBannerText = when (voiceState) {
-        VoiceState.LISTENING  -> "🎙 Listening..."
-        VoiceState.PROCESSING -> "⚙️ Processing: \"$voiceText\""
-        VoiceState.DONE       -> voiceFeedback
-        VoiceState.IDLE       -> ""
+    val voiceBannerText = when {
+        hotwordActive   -> "🎙 Listening for command..."
+        voiceProcessing -> "⚙️ Processing..."
+        voiceFeedback != null -> voiceFeedback ?: ""
+        else            -> ""
     }
+    val voiceBannerVisible = hotwordActive || voiceProcessing || voiceFeedback != null
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -273,14 +253,15 @@ fun MovementScreen() {
                 }
 
                 // Voice feedback banner
-                AnimatedVisibility(visible = voiceState != VoiceState.IDLE) {
+                AnimatedVisibility(visible = voiceBannerVisible) {
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         shape = RoundedCornerShape(10.dp),
-                        color = when (voiceState) {
-                            VoiceState.LISTENING  -> Color(0xFF1E3A5F)
-                            VoiceState.PROCESSING -> Color(0xFF2D2A1A)
-                            VoiceState.DONE       -> if (voiceFeedback.startsWith("✅")) Color(0xFF1A2D1A) else Color(0xFF2D1A1A)
+                        color = when {
+                            hotwordActive   -> Color(0xFF1E3A5F)
+                            voiceProcessing -> Color(0xFF2D2A1A)
+                            voiceFeedback?.startsWith("✅") == true -> Color(0xFF1A2D1A)
+                            voiceFeedback != null -> Color(0xFF2D1A1A)
                             else -> DarkCard
                         }
                     ) {
@@ -375,10 +356,10 @@ fun MovementScreen() {
                 animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
                 label = "pulse"
             )
-            val micAnimScale = if (voiceState == VoiceState.LISTENING) micScale else 1f
-            val micColor = when (voiceState) {
-                VoiceState.LISTENING  -> Color(0xFFEF4444)
-                VoiceState.PROCESSING -> Color(0xFFF59E0B)
+            val micAnimScale = if (hotwordActive) micScale else 1f
+            val micColor = when {
+                hotwordActive   -> Color(0xFFEF4444)
+                voiceProcessing -> Color(0xFFF59E0B)
                 else -> Amber500
             }
             FloatingActionButton(
@@ -386,7 +367,7 @@ fun MovementScreen() {
                 modifier = Modifier.scale(micAnimScale),
                 containerColor = micColor, shape = CircleShape
             ) {
-                Icon(if (voiceState == VoiceState.LISTENING) Icons.Default.MicOff else Icons.Default.Mic,
+                Icon(if (hotwordActive) Icons.Default.MicOff else Icons.Default.Mic,
                     contentDescription = "Voice command", tint = Color.Black)
             }
 
