@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.view.WindowManager
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.badger.trucks.MainActivity
@@ -71,6 +72,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var pttManager:     PushToTalkManager?  = null
     private var hotwordListener: HotwordListener?   = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
+
+    // Minimum ms after hotword fires before it can fire again — prevents echo loops
+    private val HOTWORD_COOLDOWN_MS = 4_000L
+    @Volatile private var lastHotwordMs = 0L
 
     // Cached data for voice commands (refreshed after each realtime event)
     @Volatile private var cachedTrucks:   List<LiveMovement>  = emptyList()
@@ -200,6 +205,15 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun onHotwordDetected() {
+        // Cooldown guard — ignore if we just fired (catches echo from TTS/chime)
+        val now = System.currentTimeMillis()
+        if (now - lastHotwordMs < HOTWORD_COOLDOWN_MS) {
+            Log.d("BadgerService", "Hotword ignored — within cooldown window")
+            hotwordListener?.resume()
+            return
+        }
+        lastHotwordMs = now
+
         Log.d("BadgerService", "Hotword detected — starting command listen")
         wakeScreen()
         playActivationChime()
@@ -207,10 +221,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _voiceProcessing.value = false
         _voiceFeedback.value   = null
 
-        commandRecognizer?.startListening(
-            onResult = { text -> onCommandResult(text) },
-            onError  = { err  -> onCommandError(err)  }
-        )
+        // Delay mic open until chime has finished playing so we don't record it
+        mainHandler.postDelayed({
+            commandRecognizer?.startListening(
+                onResult = { text -> onCommandResult(text) },
+                onError  = { err  -> onCommandError(err)  }
+            )
+        }, 450)
     }
 
     private fun onCommandResult(text: String) {
@@ -223,10 +240,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 val cmd    = VoiceCommandProcessor.parseCommand(text, cachedTrucks, cachedDoors, cachedStatuses)
                 val result = VoiceCommandProcessor.executeCommand(cmd, cachedTrucks, cachedDoors, cachedStatuses)
 
-                val feedback = when (result) {
-                    is VoiceResult.Success -> { speak(result.description); "✅ ${result.description}" }
-                    is VoiceResult.Error   -> { speak("Sorry, ${result.message}"); "❌ ${result.message}" }
-                    VoiceResult.Unknown    -> { speak("I didn't understand that"); "🤔 Didn't understand: \"$text\"" }
+                val (feedback, spokenText) = when (result) {
+                    is VoiceResult.Success -> "✅ ${result.description}" to result.description
+                    is VoiceResult.Error   -> "❌ ${result.message}" to "Sorry, ${result.message}"
+                    VoiceResult.Unknown    -> "🤔 Didn't understand: \"$text\"" to "I didn't understand that"
                 }
 
                 _voiceFeedback.value   = feedback
@@ -234,11 +251,18 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 if (result is VoiceResult.Success) refreshVoiceData()
 
-                // Clear feedback after a few seconds then resume hotword
-                delay(if (result is VoiceResult.Success) 2500L else 5000L)
-                _voiceFeedback.value = null
-                releaseScreen()
-                mainHandler.post { hotwordListener?.resume() }
+                // Speak result, then resume hotword only AFTER TTS finishes + buffer
+                // This prevents the hotword mic picking up our own TTS readback
+                speak(spokenText) {
+                    scope.launch {
+                        delay(if (result is VoiceResult.Success) 1500L else 3000L)
+                        _voiceFeedback.value = null
+                        releaseScreen()
+                        // Update cooldown so echo of our own TTS can't re-trigger
+                        lastHotwordMs = System.currentTimeMillis()
+                        mainHandler.post { hotwordListener?.resume() }
+                    }
+                }
 
             } catch (e: Exception) {
                 Log.e("BadgerService", "Voice command error", e)
@@ -247,7 +271,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 delay(3000)
                 _voiceFeedback.value = null
                 releaseScreen()
-                mainHandler.post { hotwordListener?.resume() }
+                lastHotwordMs = System.currentTimeMillis()
+                mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
             }
         }
     }
@@ -258,10 +283,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _voiceProcessing.value = false
         _voiceFeedback.value   = "❌ $err"
         scope.launch {
-            delay(2500)
+            delay(2000)
             _voiceFeedback.value = null
             releaseScreen()
-            mainHandler.post { hotwordListener?.resume() }
+            // Reset cooldown timestamp so next hotword isn't blocked, but add a gap
+            // so any audio bleed from the error tone doesn't self-trigger
+            lastHotwordMs = System.currentTimeMillis()
+            mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
         }
     }
 
@@ -287,10 +315,26 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     // ── TTS ───────────────────────────────────────────────────────────────────
 
-    private fun speak(text: String) {
+    private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
         if (ttsEnabled && ttsReady && ttsOn) {
-            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "badger_${System.currentTimeMillis()}")
+            val uttId = "badger_${System.currentTimeMillis()}"
+            if (onDone != null) {
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onError(utteranceId: String?) { onDone() }
+                    override fun onDone(utteranceId: String?) {
+                        if (utteranceId == uttId) {
+                            // Small buffer after speech ends before hotword can re-arm
+                            mainHandler.postDelayed({ onDone() }, 800)
+                        }
+                    }
+                })
+            }
+            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
+        } else {
+            // TTS is off — call onDone immediately so callers don't wait forever
+            onDone?.invoke()
         }
     }
 
