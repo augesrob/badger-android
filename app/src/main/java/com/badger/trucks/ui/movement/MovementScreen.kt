@@ -41,7 +41,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import com.badger.trucks.voice.PushToTalkManager
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.theme.*
@@ -63,40 +62,37 @@ data class DoorInfo(
     val notes: String
 )
 
-// ─── Voice states ────────────────────────────────────────────────────────────
 enum class VoiceState { IDLE, LISTENING, PROCESSING, DONE }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovementScreen() {
-    val scope = rememberCoroutineScope()
+    val scope   = rememberCoroutineScope()
     val context = LocalContext.current
 
-    var trucks by remember { mutableStateOf<List<LiveMovement>>(emptyList()) }
+    var trucks   by remember { mutableStateOf<List<LiveMovement>>(emptyList()) }
     var printroom by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
-    var doors by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
-    var staging by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
+    var doors    by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
+    var staging  by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var statuses by remember { mutableStateOf<List<StatusValue>>(emptyList()) }
     var tractors by remember { mutableStateOf<List<Tractor>>(emptyList()) }
-    var search by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf("all") }
-    var loading by remember { mutableStateOf(true) }
-    var ttsOn by remember { mutableStateOf(BadgerService.ttsEnabled) }
+    var search   by remember { mutableStateOf("") }
+    var filter   by remember { mutableStateOf("all") }
+    var loading  by remember { mutableStateOf(true) }
+    var ttsOn    by remember { mutableStateOf(BadgerService.ttsEnabled) }
 
-    // Dialog state
-    var statusDialogTruck by remember { mutableStateOf<LiveMovement?>(null) }
+    var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }
     var doorStatusDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
 
-    // Voice state
-    var voiceState by remember { mutableStateOf(VoiceState.IDLE) }
-    var voiceText by remember { mutableStateOf("") }
+    var voiceState    by remember { mutableStateOf(VoiceState.IDLE) }
+    var voiceText     by remember { mutableStateOf("") }
     var voiceFeedback by remember { mutableStateOf("") }
     val speechRecognizer = remember { BadgerSpeechRecognizer(context) }
 
-    // PTT state
-    var pttRecording by remember { mutableStateOf(false) }
-    var pttIncoming by remember { mutableStateOf(false) }
-    val pttManager = remember { PushToTalkManager(context, scope) }
+    // ── PTT state comes from the service — always alive even when screen is off ──
+    val pttRecording by BadgerService.pttRecording.collectAsState()
+    val pttIncoming  by BadgerService.pttIncoming.collectAsState()
+
     var hasMicPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
@@ -111,21 +107,19 @@ fun MovementScreen() {
     }
 
     DisposableEffect(Unit) {
-        onDispose {
-            speechRecognizer.destroy()
-            pttManager.destroy()
-        }
+        onDispose { speechRecognizer.destroy() }
+        // Note: no pttManager.destroy() here — PTT lives in BadgerService now
     }
 
     fun loadData() {
         scope.launch {
             try {
-                trucks = BadgerRepo.getLiveMovement()
+                trucks    = BadgerRepo.getLiveMovement()
                 printroom = BadgerRepo.getPrintroomEntries()
-                doors = BadgerRepo.getLoadingDoors()
-                staging = BadgerRepo.getStagingDoors()
-                statuses = BadgerRepo.getStatuses()
-                tractors = BadgerRepo.getTractors()
+                doors     = BadgerRepo.getLoadingDoors()
+                staging   = BadgerRepo.getStagingDoors()
+                statuses  = BadgerRepo.getStatuses()
+                tractors  = BadgerRepo.getTractors()
             } catch (e: Exception) { e.printStackTrace() }
             loading = false
         }
@@ -134,15 +128,13 @@ fun MovementScreen() {
     fun startVoiceCommand() {
         if (voiceState != VoiceState.IDLE) return
         voiceState = VoiceState.LISTENING
-        voiceText = ""
-        voiceFeedback = ""
-
+        voiceText = ""; voiceFeedback = ""
         speechRecognizer.startListening(
             onResult = { text ->
                 voiceText = text
                 voiceState = VoiceState.PROCESSING
                 scope.launch {
-                    val cmd = VoiceCommandProcessor.parseCommand(text, trucks, doors, statuses)
+                    val cmd    = VoiceCommandProcessor.parseCommand(text, trucks, doors, statuses)
                     val result = VoiceCommandProcessor.executeCommand(cmd, trucks, doors, statuses)
                     voiceFeedback = when (result) {
                         is VoiceResult.Success -> result.description
@@ -151,58 +143,32 @@ fun MovementScreen() {
                     }
                     voiceState = VoiceState.DONE
                     if (result is VoiceResult.Success) loadData()
-                    // Errors stay longer so user can read them
                     delay(if (result is VoiceResult.Success) 2500L else 6000L)
-                    voiceState = VoiceState.IDLE
-                    voiceText = ""
-                    voiceFeedback = ""
+                    voiceState = VoiceState.IDLE; voiceText = ""; voiceFeedback = ""
                 }
             },
             onError = { err ->
                 voiceFeedback = "❌ $err"
                 voiceState = VoiceState.DONE
-                scope.launch {
-                    delay(2500)
-                    voiceState = VoiceState.IDLE
-                    voiceFeedback = ""
-                }
+                scope.launch { delay(2500); voiceState = VoiceState.IDLE; voiceFeedback = "" }
             }
         )
     }
 
     LaunchedEffect(Unit) {
         loadData()
-
-        // Subscribe to realtime changes
         try {
             val channel = BadgerRepo.realtimeChannel("movement-android")
             launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.collect { loadData() } }
+            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors"  }.collect { loadData() } }
             channel.subscribe()
             Log.d("MovementScreen", "Realtime subscribed")
         } catch (e: Exception) {
-            Log.e("MovementScreen", "Realtime subscribe error: ${e.message}")
+            Log.e("MovementScreen", "Realtime error: ${e.message}")
         }
-
-        // Polling fallback: refresh every 30s in case realtime drops
-        // Don't touch the channel itself — PTT shares the same connection
         launch {
-            while (isActive) {
-                delay(30_000L)
-                loadData()
-                Log.d("MovementScreen", "Polling refresh")
-            }
+            while (isActive) { delay(30_000L); loadData() }
         }
-
-        // PTT — runs independently
-        try {
-            pttManager.startListening()
-            pttManager.onIncoming = {
-                pttIncoming = true
-                Toast.makeText(context, "📻 Incoming PTT...", Toast.LENGTH_SHORT).show()
-            }
-            pttManager.onDone = { pttIncoming = false }
-        } catch (e: Exception) { e.printStackTrace() }
     }
 
     if (loading) {
@@ -225,14 +191,9 @@ fun MovementScreen() {
     }
 
     val preshiftLookup = mutableMapOf<String, String>()
-    staging.forEach { d ->
-        d.inFront?.let { preshiftLookup[it] = d.doorLabel }
-        d.inBack?.let { preshiftLookup[it] = d.doorLabel }
-    }
+    staging.forEach { d -> d.inFront?.let { preshiftLookup[it] = d.doorLabel }; d.inBack?.let { preshiftLookup[it] = d.doorLabel } }
     val behindLookup = mutableMapOf<String, String>()
-    staging.forEach { d ->
-        if (d.inBack != null && d.inFront != null) behindLookup[d.inBack] = d.inFront
-    }
+    staging.forEach { d -> if (d.inBack != null && d.inFront != null) behindLookup[d.inBack] = d.inFront }
 
     var filtered = trucks.filter { truckToDoor.containsKey(it.truckNumber) }
     if (filter != "all") filtered = filtered.filter { (it.statusName ?: "No Status") == filter }
@@ -268,12 +229,11 @@ fun MovementScreen() {
         })
     }
 
-    // ─── Voice feedback banner ────────────────────────────────────────────────
     val voiceBannerText = when (voiceState) {
-        VoiceState.LISTENING   -> "🎙 Listening..."
-        VoiceState.PROCESSING  -> "⚙️ Processing: \"$voiceText\""
-        VoiceState.DONE        -> voiceFeedback
-        VoiceState.IDLE        -> ""
+        VoiceState.LISTENING  -> "🎙 Listening..."
+        VoiceState.PROCESSING -> "⚙️ Processing: \"$voiceText\""
+        VoiceState.DONE       -> voiceFeedback
+        VoiceState.IDLE       -> ""
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -283,45 +243,36 @@ fun MovementScreen() {
             contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             item {
-                // ─── Header row ─────────────────────────────────────────────
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
                         Text("🚚 Live Movement", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = LightText)
                         Text("${filtered.size} trucks • Tap status to change", color = MutedText, fontSize = 13.sp)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        // TTS toggle
-                        val ttsColor = if (ttsOn) Amber500 else MutedText
-                        OutlinedButton(
-                            onClick = {
-                                context.startService(Intent(context, BadgerService::class.java).apply { action = BadgerService.ACTION_TOGGLE_TTS })
-                                ttsOn = !ttsOn
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ttsColor),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, ttsColor),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) { Text(if (ttsOn) "🔊" else "🔇", fontSize = 14.sp) }
-                    }
+                    val ttsColor = if (ttsOn) Amber500 else MutedText
+                    OutlinedButton(
+                        onClick = {
+                            context.startService(Intent(context, BadgerService::class.java).apply { action = BadgerService.ACTION_TOGGLE_TTS })
+                            ttsOn = !ttsOn
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ttsColor),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ttsColor),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) { Text(if (ttsOn) "🔊" else "🔇", fontSize = 14.sp) }
                 }
 
-                // ─── PTT incoming banner ──────────────────────────────────
+                // PTT incoming banner
                 AnimatedVisibility(visible = pttIncoming) {
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFF1A3A2A)
                     ) {
-                        Text(
-                            "📻 Someone is talking...",
-                            modifier = Modifier.padding(12.dp),
-                            color = Color(0xFF4ADE80),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text("📻 Someone is talking...", modifier = Modifier.padding(12.dp),
+                            color = Color(0xFF4ADE80), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
-                // ─── Voice feedback banner ────────────────────────────────
+                // Voice feedback banner
                 AnimatedVisibility(visible = voiceState != VoiceState.IDLE) {
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -339,7 +290,6 @@ fun MovementScreen() {
 
                 Spacer(Modifier.height(8.dp))
 
-                // ─── Status filter chips ──────────────────────────────────
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     item {
                         FilterChip(selected = filter == "all", onClick = { filter = "all" },
@@ -367,7 +317,7 @@ fun MovementScreen() {
             }
 
             items(sortedDoors) { doorName ->
-                val group = doorGroups[doorName] ?: emptyList()
+                val group   = doorGroups[doorName] ?: emptyList()
                 val doorObj = doors.find { it.doorName == doorName }
                 DoorSection(
                     door = doorObj, doorName = doorName, trucks = group, truckToDoor = truckToDoor,
@@ -378,13 +328,13 @@ fun MovementScreen() {
             }
         }
 
-        // ─── FABs: PTT + Mic ─────────────────────────────────────────────────
+        // ── FABs ──────────────────────────────────────────────────────────────
         Row(
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── Push-to-talk button (hold to talk) ──
+            // Push-to-talk: sends Intent to service instead of calling manager directly
             val pttColor = if (pttRecording) Color(0xFF4ADE80) else Color(0xFF374151)
             val pttScale by rememberInfiniteTransition(label = "ptt-pulse").animateFloat(
                 initialValue = 1f, targetValue = if (pttRecording) 1.12f else 1f,
@@ -406,11 +356,10 @@ fun MovementScreen() {
                                     micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                 } else {
                                     Toast.makeText(context, "🔴 Recording...", Toast.LENGTH_SHORT).show()
-                                    pttRecording = true
-                                    pttManager.startRecording()
+                                    // Tell the service to start/stop recording
+                                    context.startService(Intent(context, BadgerService::class.java).apply { action = BadgerService.ACTION_PTT_START })
                                     tryAwaitRelease()
-                                    pttRecording = false
-                                    pttManager.stopRecording()
+                                    context.startService(Intent(context, BadgerService::class.java).apply { action = BadgerService.ACTION_PTT_STOP })
                                     Toast.makeText(context, "📤 Sending...", Toast.LENGTH_SHORT).show()
                                 }
                             }
@@ -420,7 +369,7 @@ fun MovementScreen() {
                 Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
             }
 
-            // ── Voice command mic button ──
+            // Voice command mic
             val micScale by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
                 initialValue = 1f, targetValue = 1.15f,
                 animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
@@ -435,42 +384,27 @@ fun MovementScreen() {
             FloatingActionButton(
                 onClick = { startVoiceCommand() },
                 modifier = Modifier.scale(micAnimScale),
-                containerColor = micColor,
-                shape = CircleShape
+                containerColor = micColor, shape = CircleShape
             ) {
-                Icon(
-                    if (voiceState == VoiceState.LISTENING) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = "Voice command",
-                    tint = Color.Black
-                )
+                Icon(if (voiceState == VoiceState.LISTENING) Icons.Default.MicOff else Icons.Default.Mic,
+                    contentDescription = "Voice command", tint = Color.Black)
             }
 
-            // ── Fix All button ──
+            // Fix All — only needed if something truly goes wrong now, but kept as safety net
             FloatingActionButton(
                 onClick = {
-                    Toast.makeText(context, "🔧 Restarting PTT & voice...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "🔧 Restarting service...", Toast.LENGTH_SHORT).show()
+                    // Restart the entire BadgerService — PTT, WakeLock, channels all reset cleanly
+                    context.stopService(Intent(context, BadgerService::class.java))
                     scope.launch {
-                        // Reset PTT
-                        pttManager.destroy()
-                        delay(500)
-                        pttManager.startListening()
-                        pttManager.onIncoming = {
-                            pttIncoming = true
-                            Toast.makeText(context, "📻 Incoming PTT...", Toast.LENGTH_SHORT).show()
-                        }
-                        pttManager.onDone = { pttIncoming = false }
-
-                        // Reset speech recognizer
-                        speechRecognizer.destroy()
-
-                        // Reload data
+                        delay(600)
+                        ContextCompat.startForegroundService(context, Intent(context, BadgerService::class.java))
+                        delay(1000)
                         loadData()
-
-                        Toast.makeText(context, "✅ PTT & voice restarted", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "✅ Service restarted", Toast.LENGTH_SHORT).show()
                     }
                 },
-                containerColor = Color(0xFF374151),
-                shape = CircleShape
+                containerColor = Color(0xFF374151), shape = CircleShape
             ) {
                 Icon(Icons.Default.Build, contentDescription = "Fix All", tint = Color.White)
             }
@@ -478,7 +412,8 @@ fun MovementScreen() {
     }
 }
 
-// ─── Truck Status Dialog ──────────────────────────────────────────────────────
+// ─── Dialogs ──────────────────────────────────────────────────────────────────
+
 @Composable
 fun TruckStatusDialog(truck: LiveMovement, statuses: List<StatusValue>, onDismiss: () -> Unit, onSelect: (StatusValue) -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
@@ -511,7 +446,6 @@ fun TruckStatusDialog(truck: LiveMovement, statuses: List<StatusValue>, onDismis
     }
 }
 
-// ─── Door Status Dialog ───────────────────────────────────────────────────────
 @Composable
 fun DoorStatusDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
@@ -546,7 +480,8 @@ fun DoorStatusDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String
     }
 }
 
-// ─── Door Section ─────────────────────────────────────────────────────────────
+// ─── Door Section ──────────────────────────────────────────────────────────────
+
 @Composable
 fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>, truckToDoor: Map<String, DoorInfo>,
                 preshiftLookup: Map<String, String>, behindLookup: Map<String, String>, tractors: List<Tractor>,
@@ -575,7 +510,7 @@ fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>
             Text("PAL", Modifier.width(35.dp), color = Amber500.copy(alpha = 0.7f), fontSize = 9.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         trucks.forEachIndexed { idx, t ->
-            val di = truckToDoor[t.truckNumber]
+            val di  = truckToDoor[t.truckNumber]
             val loc = t.currentLocation ?: preshiftLookup[t.truckNumber] ?: ""
             val behind = behindLookup[t.truckNumber]
             val trailerNum = resolveTrailer(t.truckNumber, tractors)
