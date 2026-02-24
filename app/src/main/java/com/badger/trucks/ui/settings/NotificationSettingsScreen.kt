@@ -78,7 +78,7 @@ private val CHANNEL_ITEMS = listOf(
     NotifItem(
         NotificationPrefsStore.KEY_HOTWORD,
         Icons.Default.Mic,
-        ""Badger" Wake Word",
+        "\"Badger\" Wake Word",
         "Say \"Badger\" to issue a voice command hands-free"
     ),
 )

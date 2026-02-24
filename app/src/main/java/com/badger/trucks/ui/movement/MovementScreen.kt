@@ -45,7 +45,6 @@ import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.voice.*
-import androidx.core.content.ContextCompat
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
