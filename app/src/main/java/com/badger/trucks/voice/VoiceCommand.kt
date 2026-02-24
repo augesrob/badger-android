@@ -349,18 +349,39 @@ Now parse: "$normalized"
 class BadgerSpeechRecognizer(private val context: Context) {
 
     private var recognizer: SpeechRecognizer? = null
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    // Prevent stacked calls — only one listen session at a time
+    @Volatile private var starting = false
 
     fun startListening(
         onResult: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        // Properly stop before destroying to avoid ERROR_RECOGNIZER_BUSY
-        try { recognizer?.stopListening() } catch (_: Exception) {}
-        try { recognizer?.cancel() } catch (_: Exception) {}
-        try { recognizer?.destroy() } catch (_: Exception) {}
-        recognizer = null
+        if (starting) {
+            Log.d("SpeechRecognizer", "Already starting, ignoring duplicate call")
+            return
+        }
+        starting = true
 
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+        // Tear down any existing instance fully before creating a new one
+        tearDown()
+
+        // Wait for the OS speech service to actually release before rebinding.
+        // Without this delay, the new recognizer binds before the old one disconnects
+        // and Google's speech service returns ERROR_CLIENT (11).
+        handler.postDelayed({
+            starting = false
+            doStartListening(onResult, onError)
+        }, 200)
+    }
+
+    private fun doStartListening(
+        onResult: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val rec = SpeechRecognizer.createSpeechRecognizer(context)
+        recognizer = rec
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -369,22 +390,25 @@ class BadgerSpeechRecognizer(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
         }
 
-        recognizer?.setRecognitionListener(object : RecognitionListener {
+        rec.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: Bundle?) {
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 if (text != null) onResult(text) else onError("No speech detected")
             }
+
             override fun onError(error: Int) {
-                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
-                    // Busy — destroy and retry after short delay
-                    Log.w("SpeechRecognizer", "Recognizer busy, retrying...")
-                    try { recognizer?.destroy() } catch (_: Exception) {}
-                    recognizer = null
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        startListening(onResult, onError)
-                    }, 300)
+                val isRetryable = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                        || error == SpeechRecognizer.ERROR_CLIENT  // error 11 — OS not ready yet
+
+                if (isRetryable) {
+                    Log.w("SpeechRecognizer", "Retryable error $error — destroying and retrying in 400ms")
+                    tearDown()
+                    handler.postDelayed({
+                        doStartListening(onResult, onError)
+                    }, 400)
                     return
                 }
+
                 onError(when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH       -> "No match — try again"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Timed out — try again"
@@ -393,6 +417,7 @@ class BadgerSpeechRecognizer(private val context: Context) {
                     else                                  -> "Speech error ($error)"
                 })
             }
+
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
@@ -402,11 +427,19 @@ class BadgerSpeechRecognizer(private val context: Context) {
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
 
-        recognizer?.startListening(intent)
+        rec.startListening(intent)
+        Log.d("SpeechRecognizer", "startListening called")
+    }
+
+    private fun tearDown() {
+        try { recognizer?.stopListening() } catch (_: Exception) {}
+        try { recognizer?.cancel() }        catch (_: Exception) {}
+        try { recognizer?.destroy() }       catch (_: Exception) {}
+        recognizer = null
     }
 
     fun destroy() {
-        recognizer?.destroy()
-        recognizer = null
+        handler.removeCallbacksAndMessages(null)
+        tearDown()
     }
 }
