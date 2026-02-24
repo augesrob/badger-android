@@ -29,6 +29,7 @@ import com.badger.trucks.ui.printroom.PrintRoomScreen
 import com.badger.trucks.ui.preshift.PreShiftScreen
 import com.badger.trucks.ui.movement.MovementScreen
 import com.badger.trucks.ui.admin.AdminScreen
+import com.badger.trucks.ui.settings.NotificationSettingsScreen
 import com.badger.trucks.updater.AppUpdater
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -57,13 +58,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Check for update every time app comes to foreground
         checkForUpdate()
-        // Also start a periodic check every 30 minutes while app is open
         updateCheckJob?.cancel()
         updateCheckJob = lifecycleScope.launch {
             while (isActive) {
-                delay(30 * 60 * 1000L) // 30 minutes
+                delay(30 * 60 * 1000L)
                 checkForUpdate()
             }
         }
@@ -76,12 +75,10 @@ class MainActivity : ComponentActivity() {
 
     private fun requestAppPermissions() {
         val needed = mutableListOf<String>()
-        // Microphone for voice commands
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.RECORD_AUDIO)
         }
-        // Notifications on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED) {
@@ -116,19 +113,25 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        // Observed by BadgerMainApp via mutableStateOf so the banner re-composes
         var pendingUpdate: com.badger.trucks.updater.UpdateInfo? by androidx.compose.runtime.mutableStateOf(null)
     }
 }
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
-    data object PrintRoom : Screen("printroom", "Print Room", Icons.Default.Print)
-    data object PreShift : Screen("preshift", "PreShift", Icons.Default.List)
-    data object Movement : Screen("movement", "Live", Icons.Default.LocalShipping)
-    data object Admin : Screen("admin", "Admin", Icons.Default.Settings)
+    data object PrintRoom     : Screen("printroom",      "Print Room", Icons.Default.Print)
+    data object PreShift      : Screen("preshift",       "PreShift",   Icons.Default.List)
+    data object Movement      : Screen("movement",       "Live",       Icons.Default.LocalShipping)
+    data object Admin         : Screen("admin",          "Admin",      Icons.Default.Settings)
+    data object Notifications : Screen("notifications",  "Alerts",     Icons.Default.Notifications)
 }
 
-val screens = listOf(Screen.PrintRoom, Screen.PreShift, Screen.Movement, Screen.Admin)
+val screens = listOf(
+    Screen.PrintRoom,
+    Screen.PreShift,
+    Screen.Movement,
+    Screen.Admin,
+    Screen.Notifications
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,7 +142,6 @@ fun BadgerMainApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
-    // Update banner state
     var showUpdateBanner by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
     val updateInfo = MainActivity.pendingUpdate
 
@@ -150,7 +152,6 @@ fun BadgerMainApp() {
                     title = { Text("🦡 Badger", color = Amber500, style = MaterialTheme.typography.titleLarge) },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg)
                 )
-                // ── Update banner ──────────────────────────────────────────
                 if (showUpdateBanner && updateInfo != null) {
                     Surface(color = Amber500) {
                         Row(
@@ -168,7 +169,7 @@ fun BadgerMainApp() {
                             Row {
                                 TextButton(onClick = {
                                     coroutineScope.launch {
-                                        AppUpdater.downloadAndInstall(context, updateInfo) { /* status */ }
+                                        AppUpdater.downloadAndInstall(context, updateInfo) { }
                                     }
                                     showUpdateBanner = false
                                 }) {
@@ -216,10 +217,11 @@ fun BadgerMainApp() {
             startDestination = Screen.PrintRoom.route,
             modifier = Modifier.padding(padding)
         ) {
-            composable(Screen.PrintRoom.route) { PrintRoomScreen() }
-            composable(Screen.PreShift.route) { PreShiftScreen() }
-            composable(Screen.Movement.route) { MovementScreen() }
-            composable(Screen.Admin.route) { AdminScreen() }
+            composable(Screen.PrintRoom.route)     { PrintRoomScreen() }
+            composable(Screen.PreShift.route)      { PreShiftScreen() }
+            composable(Screen.Movement.route)      { MovementScreen() }
+            composable(Screen.Admin.route)         { AdminScreen() }
+            composable(Screen.Notifications.route) { NotificationSettingsScreen() }
         }
     }
 }
