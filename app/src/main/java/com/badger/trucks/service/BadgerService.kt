@@ -94,7 +94,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // Audio focus
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null  // API 26+
-    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { }
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        // When we gain focus back (shouldn't happen normally), log it
+        // Other apps auto-resume when we ABANDON focus via abandonAudioFocus()
+        Log.d("BadgerService", "Audio focus change: $focusChange")
+    }
 
     private val HOTWORD_COOLDOWN_MS = 4_000L
     @Volatile private var lastHotwordMs = 0L
@@ -162,6 +166,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             ACTION_PTT_START -> { _pttRecording.value = true;  pttManager?.startRecording() }
             ACTION_PTT_STOP  -> { _pttRecording.value = false; pttManager?.stopRecording()  }
             ACTION_MANUAL_VOICE -> mainHandler.post { onHotwordDetected() }
+            ACTION_APPLY_SETTINGS -> applySettingsLive()
             ACTION_STOP -> stopSelf()
         }
         return START_STICKY
@@ -216,6 +221,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             audioFocusRequest = AudioFocusRequest.Builder(focusType)
                 .setAudioAttributes(attrs)
                 .setOnAudioFocusChangeListener(audioFocusListener)
+                .setAcceptsDelayedFocusGain(false)   // we don't need delayed — abandon when done
                 .setWillPauseWhenDucked(mode == NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE)
                 .build()
                 .also { audioManager?.requestAudioFocus(it) }
@@ -239,6 +245,25 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             Log.w("BadgerService", "abandonAudioFocus error: ${e.message}")
         }
     }
+
+    /** Called when user changes settings — re-reads prefs and applies live without restart */
+    private fun applySettingsLive() {
+        val hotwordEnabled = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_HOTWORD)
+        mainHandler.post {
+            hotwordListener?.let { hw ->
+                if (hotwordEnabled) {
+                    hw.resume()
+                    Log.d("BadgerService", "applySettings: hotword resumed")
+                } else {
+                    hw.pause()
+                    Log.d("BadgerService", "applySettings: hotword paused")
+                }
+            }
+        }
+        Log.d("BadgerService", "applySettings: audio focus mode = ${NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS)}")
+        // Audio focus mode is read fresh on each requestAudioFocus() call — no action needed
+    }
+
 
     // ── Hotword flow ──────────────────────────────────────────────────────────
 

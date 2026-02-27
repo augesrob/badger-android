@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.badger.trucks.service.BadgerService
 import com.badger.trucks.service.NotificationPrefsStore
 
 private val Amber = Color(0xFFF59E0B)
@@ -116,7 +117,17 @@ fun NotificationSettingsScreen() {
         prefs = updated
         NotificationPrefsStore.setAll(context, updated)
         saved = true
+        notifyService()
     }
+    fun notifyService() {
+        if (BadgerService.isRunning) {
+            val intent = Intent(context, BadgerService::class.java).apply {
+                action = BadgerService.ACTION_APPLY_SETTINGS
+            }
+            context.startService(intent)
+        }
+    }
+
 
     fun allEventsOn()  { EVENT_ITEMS.forEach { toggle(it.key) } }
 
