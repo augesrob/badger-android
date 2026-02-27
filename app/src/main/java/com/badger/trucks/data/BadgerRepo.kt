@@ -31,6 +31,12 @@ object BadgerRepo {
             .update({ set("dock_lock_status", status) }) { filter { eq("id", id) } }
     }
 
+    // ===== DOCK LOCK STATUS VALUES (dynamic — managed in Admin) =====
+    suspend fun getDockLockStatusValues(): List<DockLockStatusValue> =
+        client.postgrest["dock_lock_status_values"]
+            .select { filter { eq("is_active", true) }; order("sort_order", Order.ASCENDING) }
+            .decodeList()
+
     // ===== DOOR STATUS VALUES (dynamic — managed in Admin) =====
     suspend fun getDoorStatusValues(): List<DoorStatusValue> =
         client.postgrest["door_status_values"]

@@ -77,6 +77,7 @@ fun MovementScreen() {
     var staging  by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var statuses by remember { mutableStateOf<List<StatusValue>>(emptyList()) }
     val doorStatusValues by BadgerService.liveDoorStatusValues.collectAsState()
+    val dockLockStatusValues by BadgerService.liveDockLockStatusValues.collectAsState()
     var tractors by remember { mutableStateOf<List<Tractor>>(emptyList()) }
     var search   by remember { mutableStateOf("") }
     var filter   by remember { mutableStateOf("all") }
@@ -219,7 +220,7 @@ fun MovementScreen() {
     }
 
     dockLockDialogDoor?.let { door ->
-        DockLockDialog(door = door, onDismiss = { dockLockDialogDoor = null }, onSelect = { newStatus ->
+        DockLockDialog(door = door, dockLockStatusValues = dockLockStatusValues, onDismiss = { dockLockDialogDoor = null }, onSelect = { newStatus ->
             scope.launch { try { BadgerRepo.updateDockLockStatus(door.id, newStatus); loadData() } catch (e: Exception) { e.printStackTrace() } }
             dockLockDialogDoor = null
         })
@@ -321,6 +322,7 @@ fun MovementScreen() {
                     door = doorObj, doorName = doorName, trucks = group, truckToDoor = truckToDoor,
                     preshiftLookup = preshiftLookup, behindLookup = behindLookup, tractors = tractors,
                     doorStatusValues = doorStatusValues,
+                    dockLockStatusValues = dockLockStatusValues,
                     onTruckTap = { statusDialogTruck = it },
                     onDoorHeaderTap = { doorObj?.let { doorStatusDialogDoor = it } },
                     onDockLockTap = { doorObj?.let { dockLockDialogDoor = it } }
@@ -494,6 +496,7 @@ fun DoorStatusDialog(door: LoadingDoor, doorStatusValues: List<DoorStatusValue>,
 fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>, truckToDoor: Map<String, DoorInfo>,
                 preshiftLookup: Map<String, String>, behindLookup: Map<String, String>, tractors: List<Tractor>,
                 doorStatusValues: List<DoorStatusValue>,
+                dockLockStatusValues: List<DockLockStatusValue>,
                 onTruckTap: (LiveMovement) -> Unit, onDoorHeaderTap: () -> Unit, onDockLockTap: () -> Unit) {
     val doorStatusStr = door?.doorStatus ?: ""
     val statusColor = if (doorStatusValues.isNotEmpty()) {
@@ -513,12 +516,15 @@ fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>
                 // Dock lock chip — only for doors 13A-15B
                 if (doorName in DOCK_LOCK_DOORS) {
                     val dockLock = door?.dockLockStatus
-                    val dockColor = when (dockLock) {
-                        "working"     -> Color(0xFF22C55E)
-                        "not_working" -> Color(0xFFEF4444)
-                        else          -> Color(0xFF374151)
+                    // Use dynamic admin-managed dock lock status values if available
+                    val matchedDsv = dockLockStatusValues.find { it.statusName.lowercase() == dockLock?.lowercase() }
+                    val dockColor = when {
+                        matchedDsv != null -> try { Color(android.graphics.Color.parseColor(matchedDsv.statusColor)) } catch (_: Exception) { Color(0xFF374151) }
+                        dockLock == "working"     -> Color(0xFF22C55E)
+                        dockLock == "not_working" -> Color(0xFFEF4444)
+                        else                      -> Color(0xFF374151)
                     }
-                    val dockLabel = when (dockLock) {
+                    val dockLabel = matchedDsv?.statusName ?: when (dockLock) {
                         "working"     -> "🔒 Working"
                         "not_working" -> "🔓 Not Working"
                         else          -> "🔒 Dock Lock"
@@ -596,7 +602,7 @@ fun resolveTrailer(truckNum: String, tractors: List<Tractor>): String? {
 // ─── Dock Lock Dialog ─────────────────────────────────────────────────────────
 
 @Composable
-fun DockLockDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String?) -> Unit) {
+fun DockLockDialog(door: LoadingDoor, dockLockStatusValues: List<DockLockStatusValue> = emptyList(), onDismiss: () -> Unit, onSelect: (String?) -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
             Column(Modifier.padding(20.dp)) {
@@ -605,11 +611,18 @@ fun DockLockDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String?)
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close", tint = MutedText) }
                 }
                 Spacer(Modifier.height(12.dp))
-                listOf(
+                // Use admin-managed status values if available, otherwise show defaults
+                val options: List<Triple<String, String, Color>> = if (dockLockStatusValues.isNotEmpty())
+                    dockLockStatusValues.map { dsv ->
+                        Triple(dsv.statusName, dsv.statusName,
+                            try { Color(android.graphics.Color.parseColor(dsv.statusColor)) } catch (_: Exception) { Color(0xFF6B7280) })
+                    }
+                else listOf(
                     Triple("working",     "🔒 Working",     Color(0xFF22C55E)),
                     Triple("not_working", "🔓 Not Working", Color(0xFFEF4444)),
-                ).forEach { (value, label, color) ->
-                    val isSelected = door.dockLockStatus == value
+                )
+                options.forEach { (value, label, color) ->
+                    val isSelected = door.dockLockStatus?.lowercase() == value.lowercase()
                     Row(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                             .background(if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent)

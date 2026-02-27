@@ -32,6 +32,15 @@ data class DoorStatusValue(
 )
 
 @Serializable
+data class DockLockStatusValue(
+    val id: Int = 0,
+    @SerialName("status_name") val statusName: String,
+    @SerialName("status_color") val statusColor: String,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("is_active") val isActive: Boolean = true
+)
+
+@Serializable
 data class LoadingDoor(
     val id: Int = 0,
     @SerialName("door_name") val doorName: String,

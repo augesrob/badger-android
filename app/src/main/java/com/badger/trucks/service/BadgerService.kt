@@ -22,6 +22,7 @@ import androidx.core.app.NotificationCompat
 import com.badger.trucks.MainActivity
 import com.badger.trucks.data.BadgerRepo
 import com.badger.trucks.data.DoorStatusValue
+import com.badger.trucks.data.DockLockStatusValue
 import com.badger.trucks.data.LoadingDoor
 import com.badger.trucks.data.LiveMovement
 import com.badger.trucks.data.LiveMovementStatus
@@ -72,10 +73,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         // Live truck/door data — updated optimistically on voice commands
         private val _liveTrucks          = MutableStateFlow<List<LiveMovement>>(emptyList())
         private val _liveDoors           = MutableStateFlow<List<LoadingDoor>>(emptyList())
-        private val _liveDoorStatusValues = MutableStateFlow<List<DoorStatusValue>>(emptyList())
-        val liveTrucks:          StateFlow<List<LiveMovement>>      = _liveTrucks.asStateFlow()
-        val liveDoors:           StateFlow<List<LoadingDoor>>       = _liveDoors.asStateFlow()
-        val liveDoorStatusValues: StateFlow<List<DoorStatusValue>>  = _liveDoorStatusValues.asStateFlow()
+        private val _liveDoorStatusValues     = MutableStateFlow<List<DoorStatusValue>>(emptyList())
+        private val _liveDockLockStatusValues  = MutableStateFlow<List<DockLockStatusValue>>(emptyList())
+        val liveTrucks:              StateFlow<List<LiveMovement>>          = _liveTrucks.asStateFlow()
+        val liveDoors:               StateFlow<List<LoadingDoor>>           = _liveDoors.asStateFlow()
+        val liveDoorStatusValues:    StateFlow<List<DoorStatusValue>>       = _liveDoorStatusValues.asStateFlow()
+        val liveDockLockStatusValues: StateFlow<List<DockLockStatusValue>>  = _liveDockLockStatusValues.asStateFlow()
     }
 
     private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -99,6 +102,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // Cached data for voice commands
     @Volatile private var cachedStatuses: List<StatusValue> = emptyList()
     @Volatile private var cachedDoorStatusValues: List<DoorStatusValue> = emptyList()
+    @Volatile private var cachedDockLockStatusValues: List<DockLockStatusValue> = emptyList()
     private var cachedTrucks: List<LiveMovement> = emptyList()
         set(value) { field = value; _liveTrucks.value = value }
     private var cachedDoors: List<LoadingDoor> = emptyList()
@@ -379,6 +383,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             cachedStatuses        = BadgerRepo.getStatuses()
             cachedDoorStatusValues = BadgerRepo.getDoorStatusValues()
             _liveDoorStatusValues.value = cachedDoorStatusValues
+            cachedDockLockStatusValues = BadgerRepo.getDockLockStatusValues()
+            _liveDockLockStatusValues.value = cachedDockLockStatusValues
         } catch (e: Exception) {
             Log.w("BadgerService", "refreshVoiceData error: ${e.message}")
         }
@@ -496,6 +502,14 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         cachedDoorStatusValues = BadgerRepo.getDoorStatusValues()
                         _liveDoorStatusValues.value = cachedDoorStatusValues
                     } catch (e: Exception) { Log.e("BadgerService", "DoorStatusValues refresh: ${e.message}") }
+                }.launchIn(scope)
+
+                // Refresh dock lock status values when admin changes them
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "dock_lock_status_values" }.onEach {
+                    try {
+                        cachedDockLockStatusValues = BadgerRepo.getDockLockStatusValues()
+                        _liveDockLockStatusValues.value = cachedDockLockStatusValues
+                    } catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues refresh: ${'$'}{e.message}") }
                 }.launchIn(scope)
 
                 channel.subscribe()
