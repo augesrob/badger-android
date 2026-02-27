@@ -52,6 +52,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
         const val ACTION_MANUAL_VOICE  = "com.badger.trucks.MANUAL_VOICE"
         const val ACTION_DATA_CHANGED  = "com.badger.trucks.DATA_CHANGED"
+        const val ACTION_APPLY_SETTINGS = "com.badger.trucks.APPLY_SETTINGS"
 
         var ttsEnabled = true
         var isRunning  = false

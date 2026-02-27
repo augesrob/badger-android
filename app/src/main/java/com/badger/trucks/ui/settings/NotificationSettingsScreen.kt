@@ -111,14 +111,6 @@ fun NotificationSettingsScreen() {
     var prefs by remember { mutableStateOf(NotificationPrefsStore.getAll(context)) }
     var saved by remember { mutableStateOf(false) }
 
-    fun toggle(key: String) {
-        val updated = prefs.toMutableMap()
-        updated[key] = !(updated[key] ?: true)
-        prefs = updated
-        NotificationPrefsStore.setAll(context, updated)
-        saved = true
-        notifyService()
-    }
     fun notifyService() {
         if (BadgerService.isRunning) {
             val intent = Intent(context, BadgerService::class.java).apply {
@@ -126,6 +118,15 @@ fun NotificationSettingsScreen() {
             }
             context.startService(intent)
         }
+    }
+
+    fun toggle(key: String) {
+        val updated = prefs.toMutableMap()
+        updated[key] = !(updated[key] ?: true)
+        prefs = updated
+        NotificationPrefsStore.setAll(context, updated)
+        saved = true
+        notifyService()
     }
 
 
