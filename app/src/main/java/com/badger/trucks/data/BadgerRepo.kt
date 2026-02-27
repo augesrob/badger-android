@@ -26,6 +26,17 @@ object BadgerRepo {
             .update({ set("door_status", status) }) { filter { eq("id", id) } }
     }
 
+    suspend fun updateDockLockStatus(id: Int, status: String?) {
+        client.postgrest["loading_doors"]
+            .update({ set("dock_lock_status", status) }) { filter { eq("id", id) } }
+    }
+
+    // ===== DOOR STATUS VALUES (dynamic — managed in Admin) =====
+    suspend fun getDoorStatusValues(): List<DoorStatusValue> =
+        client.postgrest["door_status_values"]
+            .select { filter { eq("is_active", true) }; order("sort_order", Order.ASCENDING) }
+            .decodeList()
+
     // ===== PRINTROOM ENTRIES =====
     suspend fun getPrintroomEntries(): List<PrintroomEntry> =
         client.postgrest["printroom_entries"]

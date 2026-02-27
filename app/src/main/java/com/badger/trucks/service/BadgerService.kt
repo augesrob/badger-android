@@ -4,10 +4,12 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -19,8 +21,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.badger.trucks.MainActivity
 import com.badger.trucks.data.BadgerRepo
+import com.badger.trucks.data.DoorStatusValue
 import com.badger.trucks.data.LoadingDoor
 import com.badger.trucks.data.LiveMovement
+import com.badger.trucks.data.LiveMovementStatus
 import com.badger.trucks.data.StatusValue
 import com.badger.trucks.voice.BadgerSpeechRecognizer
 import com.badger.trucks.voice.HotwordListener
@@ -46,7 +50,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_PTT_STOP    = "com.badger.trucks.PTT_STOP"
         const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
         const val ACTION_MANUAL_VOICE  = "com.badger.trucks.MANUAL_VOICE"
-        const val ACTION_DATA_CHANGED  = "com.badger.trucks.DATA_CHANGED"  // tells UI to reload
+        const val ACTION_DATA_CHANGED  = "com.badger.trucks.DATA_CHANGED"
 
         var ttsEnabled = true
         var isRunning  = false
@@ -65,12 +69,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
         val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
 
-        // Live truck/door data — updated optimistically on voice commands so UI
-        // can reflect changes instantly without its own network fetch
-        private val _liveTrucks = MutableStateFlow<List<com.badger.trucks.data.LiveMovement>>(emptyList())
-        private val _liveDoors  = MutableStateFlow<List<com.badger.trucks.data.LoadingDoor>>(emptyList())
-        val liveTrucks: StateFlow<List<com.badger.trucks.data.LiveMovement>> = _liveTrucks.asStateFlow()
-        val liveDoors:  StateFlow<List<com.badger.trucks.data.LoadingDoor>>  = _liveDoors.asStateFlow()
+        // Live truck/door data — updated optimistically on voice commands
+        private val _liveTrucks          = MutableStateFlow<List<LiveMovement>>(emptyList())
+        private val _liveDoors           = MutableStateFlow<List<LoadingDoor>>(emptyList())
+        private val _liveDoorStatusValues = MutableStateFlow<List<DoorStatusValue>>(emptyList())
+        val liveTrucks:          StateFlow<List<LiveMovement>>      = _liveTrucks.asStateFlow()
+        val liveDoors:           StateFlow<List<LoadingDoor>>       = _liveDoors.asStateFlow()
+        val liveDoorStatusValues: StateFlow<List<DoorStatusValue>>  = _liveDoorStatusValues.asStateFlow()
     }
 
     private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -78,24 +83,27 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady     = false
     private var wakeLock: PowerManager.WakeLock? = null
-    private var screenLock: PowerManager.WakeLock? = null  // briefly wakes screen for command
+    private var screenLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
     private var hotwordListener: HotwordListener?   = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
 
-    // Minimum ms after hotword fires before it can fire again — prevents echo loops
+    // Audio focus
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null  // API 26+
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { }
+
     private val HOTWORD_COOLDOWN_MS = 4_000L
     @Volatile private var lastHotwordMs = 0L
 
-    // Cached data for voice commands (refreshed after each realtime event)
+    // Cached data for voice commands
     @Volatile private var cachedStatuses: List<StatusValue> = emptyList()
-    // cachedTrucks/cachedDoors use setters to keep companion StateFlows in sync
+    @Volatile private var cachedDoorStatusValues: List<DoorStatusValue> = emptyList()
     private var cachedTrucks: List<LiveMovement> = emptyList()
         set(value) { field = value; _liveTrucks.value = value }
     private var cachedDoors: List<LoadingDoor> = emptyList()
         set(value) { field = value; _liveDoors.value = value }
 
-    // State snapshots for change detection
     private val knownStatuses   = mutableMapOf<String, String?>()
     private val knownDoorStatus = mutableMapOf<String, String?>()
     private val knownPreshift   = mutableMapOf<Int, Pair<String?, String?>>()
@@ -105,6 +113,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:ptt_wakelock").also { it.acquire() }
@@ -114,7 +123,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
         tts = TextToSpeech(this, this)
 
-        // PTT
         pttManager = PushToTalkManager(this, scope).also { mgr ->
             mgr.onIncoming = {
                 _pttIncoming.value = true
@@ -124,10 +132,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             mgr.startListening()
         }
 
-        // Command recognizer (shared instance, reused after each hotword)
         commandRecognizer = BadgerSpeechRecognizer(this)
 
-        // Hotword — lives on main thread as required by SpeechRecognizer
         val hotwordEnabled = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_HOTWORD)
         mainHandler.post {
             hotwordListener = HotwordListener(this).also { hw ->
@@ -137,9 +143,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
         }
 
-        // Preload data for voice commands
         scope.launch { refreshVoiceData() }
-
         startRealtimeSync()
         Log.d("BadgerService", "Service created")
     }
@@ -173,6 +177,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         mainHandler.post { hotwordListener?.destroy() }
         commandRecognizer?.destroy()
         tts?.stop(); tts?.shutdown()
+        abandonAudioFocus()
         scope.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
         releaseScreen()
@@ -186,13 +191,53 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
+    // ── Audio Focus ───────────────────────────────────────────────────────────
+
+    private fun requestAudioFocus() {
+        val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
+            NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT)
+        if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
+
+        val focusType = when (mode) {
+            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+            NotificationPrefsStore.AUDIO_FOCUS_DUCK      -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            else                                          -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            audioFocusRequest = AudioFocusRequest.Builder(focusType)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener(audioFocusListener)
+                .setWillPauseWhenDucked(mode == NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE)
+                .build()
+                .also { audioManager?.requestAudioFocus(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, focusType)
+        }
+        Log.d("BadgerService", "Audio focus requested: $mode")
+    }
+
+    private fun abandonAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+                audioFocusRequest = null
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(audioFocusListener)
+            }
+        } catch (e: Exception) {
+            Log.w("BadgerService", "abandonAudioFocus error: ${e.message}")
+        }
+    }
+
     // ── Hotword flow ──────────────────────────────────────────────────────────
 
-    /**
-     * Called on the main thread when "badger" is detected.
-     * Plays a chime, shows the listening indicator in the UI,
-     * then starts the command recognizer.
-     */
     private fun wakeScreen() {
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -201,40 +246,31 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             screenLock = pm.newWakeLock(
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "badger:screen_wake"
-            ).also {
-                it.acquire(8_000L)  // max 8s — enough for command + feedback
-            }
-            Log.d("BadgerService", "Screen woken for voice command")
+            ).also { it.acquire(8_000L) }
         } catch (e: Exception) {
             Log.w("BadgerService", "Could not wake screen: ${e.message}")
         }
     }
 
     private fun releaseScreen() {
-        try {
-            screenLock?.let { if (it.isHeld) it.release() }
-            screenLock = null
-        } catch (_: Exception) {}
+        try { screenLock?.let { if (it.isHeld) it.release() }; screenLock = null } catch (_: Exception) {}
     }
 
     private fun onHotwordDetected() {
-        // Cooldown guard — ignore if we just fired (catches echo from TTS/chime)
         val now = System.currentTimeMillis()
         if (now - lastHotwordMs < HOTWORD_COOLDOWN_MS) {
-            Log.d("BadgerService", "Hotword ignored — within cooldown window")
             hotwordListener?.resume()
             return
         }
         lastHotwordMs = now
 
-        Log.d("BadgerService", "Hotword detected — starting command listen")
         wakeScreen()
+        requestAudioFocus()
         playActivationChime()
         _hotwordActive.value   = true
         _voiceProcessing.value = false
         _voiceFeedback.value   = null
 
-        // Delay mic open until chime has finished playing so we don't record it
         mainHandler.postDelayed({
             commandRecognizer?.startListening(
                 onResult = { text -> onCommandResult(text) },
@@ -244,7 +280,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun onCommandResult(text: String) {
-        Log.d("BadgerService", "Voice command: '$text'")
         _hotwordActive.value   = false
         _voiceProcessing.value = true
 
@@ -263,9 +298,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 _voiceProcessing.value = false
 
                 if (result is VoiceResult.Success) {
-                    // ── Optimistic update ────────────────────────────────────
-                    // Mutate the in-memory cache immediately from the parsed command
-                    // so the UI reflects the change NOW — no network round-trip needed.
                     when (cmd.action) {
                         "truck_status" -> {
                             val newStatus = cachedStatuses.find { it.statusName == cmd.status }
@@ -277,7 +309,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                                     ))
                                 else t
                             }
-                            // Pre-stamp so Realtime diff sees prev==curr and stays silent
                             cmd.truck?.let { knownStatuses[it] = newStatus?.statusName }
                         }
                         "door_status" -> {
@@ -288,21 +319,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         }
                     }
 
-                    // Broadcast immediately — UI reloads from cache, feels instant
                     sendBroadcast(Intent(ACTION_DATA_CHANGED))
-
-                    // Refresh from DB in background to pick up any server-side changes
                     scope.launch { refreshVoiceData() }
                 }
 
-                // Speak result, then resume hotword only AFTER TTS finishes + buffer
-                // This prevents the hotword mic picking up our own TTS readback
                 speak(spokenText) {
                     scope.launch {
                         delay(if (result is VoiceResult.Success) 1500L else 3000L)
                         _voiceFeedback.value = null
                         releaseScreen()
-                        // Update cooldown so echo of our own TTS can't re-trigger
+                        abandonAudioFocus()
                         lastHotwordMs = System.currentTimeMillis()
                         mainHandler.post { hotwordListener?.resume() }
                     }
@@ -315,6 +341,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 delay(3000)
                 _voiceFeedback.value = null
                 releaseScreen()
+                abandonAudioFocus()
                 lastHotwordMs = System.currentTimeMillis()
                 mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
             }
@@ -322,7 +349,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun onCommandError(err: String) {
-        Log.w("BadgerService", "Voice command error: $err")
         _hotwordActive.value   = false
         _voiceProcessing.value = false
         _voiceFeedback.value   = "❌ $err"
@@ -330,8 +356,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             delay(2000)
             _voiceFeedback.value = null
             releaseScreen()
-            // Reset cooldown timestamp so next hotword isn't blocked, but add a gap
-            // so any audio bleed from the error tone doesn't self-trigger
+            abandonAudioFocus()
             lastHotwordMs = System.currentTimeMillis()
             mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
         }
@@ -349,9 +374,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     private suspend fun refreshVoiceData() {
         try {
-            cachedTrucks   = BadgerRepo.getLiveMovement()
-            cachedDoors    = BadgerRepo.getLoadingDoors()
-            cachedStatuses = BadgerRepo.getStatuses()
+            cachedTrucks          = BadgerRepo.getLiveMovement()
+            cachedDoors           = BadgerRepo.getLoadingDoors()
+            cachedStatuses        = BadgerRepo.getStatuses()
+            cachedDoorStatusValues = BadgerRepo.getDoorStatusValues()
+            _liveDoorStatusValues.value = cachedDoorStatusValues
         } catch (e: Exception) {
             Log.w("BadgerService", "refreshVoiceData error: ${e.message}")
         }
@@ -369,7 +396,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     override fun onError(utteranceId: String?) { onDone() }
                     override fun onDone(utteranceId: String?) {
                         if (utteranceId == uttId) {
-                            // Small buffer after speech ends before hotword can re-arm
                             mainHandler.postDelayed({ onDone() }, 800)
                         }
                     }
@@ -377,7 +403,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
             tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
         } else {
-            // TTS is off — call onDone immediately so callers don't wait forever
             onDone?.invoke()
         }
     }
@@ -463,6 +488,14 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                             }
                         }
                     } catch (e: Exception) { Log.e("BadgerService", "PreShift refresh: ${e.message}") }
+                }.launchIn(scope)
+
+                // Refresh door status values when admin changes them
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "door_status_values" }.onEach {
+                    try {
+                        cachedDoorStatusValues = BadgerRepo.getDoorStatusValues()
+                        _liveDoorStatusValues.value = cachedDoorStatusValues
+                    } catch (e: Exception) { Log.e("BadgerService", "DoorStatusValues refresh: ${e.message}") }
                 }.launchIn(scope)
 
                 channel.subscribe()

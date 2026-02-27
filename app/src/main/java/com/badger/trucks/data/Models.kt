@@ -23,10 +23,20 @@ data class StatusValue(
 )
 
 @Serializable
+data class DoorStatusValue(
+    val id: Int = 0,
+    @SerialName("status_name") val statusName: String,
+    @SerialName("status_color") val statusColor: String,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("is_active") val isActive: Boolean = true
+)
+
+@Serializable
 data class LoadingDoor(
     val id: Int = 0,
     @SerialName("door_name") val doorName: String,
     @SerialName("door_status") val doorStatus: String = "",
+    @SerialName("dock_lock_status") val dockLockStatus: String? = null,
     @SerialName("is_done_for_night") val isDoneForNight: Boolean = false,
     @SerialName("sort_order") val sortOrder: Int = 0
 )
@@ -130,19 +140,26 @@ data class Route(
     @SerialName("is_active") val isActive: Boolean = true
 )
 
-// Door status constants
+// Dock lock door names that support the dock lock feature
+val DOCK_LOCK_DOORS = setOf("13A", "13B", "14A", "14B", "15A", "15B")
+
+// Fallback door status constants — used only when door_status_values table is empty
 val DOOR_STATUSES = listOf(
     "Loading", "End Of Tote", "EOT+1", "Change Truck/Trailer",
     "Waiting", "Done for Night", "100%"
 )
 
 fun doorStatusColor(status: String): Long = when (status) {
-    "Loading" -> 0xFF3B82F6
-    "End Of Tote" -> 0xFFF59E0B
-    "EOT+1" -> 0xFFF97316
-    "Change Truck/Trailer" -> 0xFF8B5CF6
-    "Waiting" -> 0xFF6B7280
-    "Done for Night" -> 0xFF22C55E
-    "100%" -> 0xFF22C55E
-    else -> 0xFF6B7280
+    "Loading"               -> 0xFF3B82F6
+    "End Of Tote"           -> 0xFFF59E0B
+    "EOT+1"                 -> 0xFFF97316
+    "Change Truck/Trailer"  -> 0xFF8B5CF6
+    "Waiting"               -> 0xFF6B7280
+    "Done for Night"        -> 0xFF22C55E
+    "100%"                  -> 0xFF22C55E
+    else                    -> 0xFF6B7280
 }
+
+// Parse a hex color string (#RRGGBB or #AARRGGBB) into a Compose-compatible Long
+fun parseHexColor(hex: String, fallback: Long = 0xFF6B7280): Long =
+    try { android.graphics.Color.parseColor(hex).toLong() and 0xFFFFFFFFL or 0xFF000000L } catch (_: Exception) { fallback }

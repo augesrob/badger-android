@@ -215,6 +215,67 @@ fun NotificationSettingsScreen() {
             )
         }
 
+        Divider(color = DarkBorder, thickness = 1.dp)
+
+        // Audio Focus section
+        SectionLabel("Audio Focus")
+        Text(
+            "Control how Badger interacts with other audio apps (music, podcasts) when speaking or listening.",
+            fontSize = 12.sp,
+            color = Color.Gray
+        )
+        Spacer(Modifier.height(8.dp))
+
+        val audioFocusMode = remember {
+            mutableStateOf(
+                NotificationPrefsStore.getString(context, NotificationPrefsStore.KEY_AUDIO_FOCUS,
+                    NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT)
+            )
+        }
+
+        val audioFocusOptions = listOf(
+            Triple(NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE, "Mute Other Apps",         "Other apps go completely silent while Badger speaks"),
+            Triple(NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT, "Priority (Recommended)",  "Other apps pause and resume after Badger is done"),
+            Triple(NotificationPrefsStore.AUDIO_FOCUS_DUCK,      "Lower Volume of Others",  "Other apps drop to ~20% volume while Badger speaks"),
+            Triple(NotificationPrefsStore.AUDIO_FOCUS_OFF,       "Off",                     "No audio focus — Badger competes with other audio"),
+        )
+
+        audioFocusOptions.forEach { (value, label, desc) ->
+            val selected = audioFocusMode.value == value
+            Card(
+                colors = CardDefaults.cardColors(containerColor = if (selected) DarkCard else Color(0xFF111111)),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        audioFocusMode.value = value
+                        NotificationPrefsStore.setString(context, NotificationPrefsStore.KEY_AUDIO_FOCUS, value)
+                        saved = true
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    RadioButton(
+                        selected = selected,
+                        onClick = {
+                            audioFocusMode.value = value
+                            NotificationPrefsStore.setString(context, NotificationPrefsStore.KEY_AUDIO_FOCUS, value)
+                            saved = true
+                        },
+                        colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF8B5CF6))
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            color = if (selected) Color.White else Color.Gray)
+                        Text(desc, fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
     }
 }

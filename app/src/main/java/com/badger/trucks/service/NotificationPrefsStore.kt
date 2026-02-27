@@ -31,6 +31,14 @@ object NotificationPrefsStore {
     const val KEY_SHOW_MIC      = "ui_show_mic"      // Voice command mic button
     const val KEY_SHOW_FIXALL   = "ui_show_fixall"   // Fix All wrench button
 
+    // Audio focus mode — controls how Badger interacts with other audio apps
+    // Values: "exclusive" | "transient" | "duck" | "off"
+    const val KEY_AUDIO_FOCUS   = "audio_focus_mode"
+    const val AUDIO_FOCUS_EXCLUSIVE = "exclusive"  // Mute other apps completely
+    const val AUDIO_FOCUS_TRANSIENT = "transient"  // Pause other apps (default)
+    const val AUDIO_FOCUS_DUCK      = "duck"       // Lower volume of other apps
+    const val AUDIO_FOCUS_OFF       = "off"        // No audio focus management
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -39,6 +47,12 @@ object NotificationPrefsStore {
 
     fun set(context: Context, key: String, value: Boolean) =
         prefs(context).edit().putBoolean(key, value).apply()
+
+    fun getString(context: Context, key: String, default: String = ""): String =
+        prefs(context).getString(key, default) ?: default
+
+    fun setString(context: Context, key: String, value: String) =
+        prefs(context).edit().putString(key, value).apply()
 
     fun getAll(context: Context): Map<String, Boolean> {
         val p = prefs(context)
