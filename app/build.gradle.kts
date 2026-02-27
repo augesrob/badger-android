@@ -14,8 +14,8 @@ android {
         applicationId = "com.badger.trucks"
         minSdk = 26
         targetSdk = 34
-        versionCode = 60
-        versionName = "60.0"
+        versionCode = 61
+        versionName = "61.0"
 
         // Secrets injected from local.properties (dev) or GitHub Secrets (CI)
         val localProps = Properties().also { props ->
