@@ -295,7 +295,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         lastHotwordMs = now
 
         wakeScreen()
-        requestAudioFocus()
         playActivationChime()
         _hotwordActive.value   = true
         _voiceProcessing.value = false
@@ -358,7 +357,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         delay(if (result is VoiceResult.Success) 1500L else 3000L)
                         _voiceFeedback.value = null
                         releaseScreen()
-                        abandonAudioFocus()
                         lastHotwordMs = System.currentTimeMillis()
                         mainHandler.post { hotwordListener?.resume() }
                     }
@@ -371,7 +369,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 delay(3000)
                 _voiceFeedback.value = null
                 releaseScreen()
-                abandonAudioFocus()
                 lastHotwordMs = System.currentTimeMillis()
                 mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
             }
@@ -386,7 +383,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             delay(2000)
             _voiceFeedback.value = null
             releaseScreen()
-            abandonAudioFocus()
             lastHotwordMs = System.currentTimeMillis()
             mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
         }
@@ -422,17 +418,22 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
         if (ttsEnabled && ttsReady && ttsOn) {
             val uttId = "badger_${System.currentTimeMillis()}"
-            if (onDone != null) {
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {}
-                    override fun onError(utteranceId: String?) { onDone() }
-                    override fun onDone(utteranceId: String?) {
-                        if (utteranceId == uttId) {
-                            mainHandler.postDelayed({ onDone() }, 800)
-                        }
+            requestAudioFocus()
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onError(utteranceId: String?) {
+                    abandonAudioFocus()
+                    onDone?.invoke()
+                }
+                override fun onDone(utteranceId: String?) {
+                    if (utteranceId == uttId) {
+                        mainHandler.postDelayed({
+                            abandonAudioFocus()
+                            onDone?.invoke()
+                        }, 600)
                     }
-                })
-            }
+                }
+            })
             tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
         } else {
             onDone?.invoke()

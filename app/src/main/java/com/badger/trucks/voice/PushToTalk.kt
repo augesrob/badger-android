@@ -199,15 +199,37 @@ class PushToTalkManager(
     private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.IO) {
         if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM"); return@withContext }
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val wasSpeakerOn = audioManager.isSpeakerphoneOn
+
+        // Request audio focus so other apps (YouTube, PocketFM, etc.) pause
+        val focusResult: Int
+        val focusRequest: android.media.AudioFocusRequest?
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            val req = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attrs)
+                .setAcceptsDelayedFocusGain(false)
+                .setOnAudioFocusChangeListener {}
+                .build()
+            focusRequest = req
+            focusResult = audioManager.requestAudioFocus(req)
+        } else {
+            focusRequest = null
+            @Suppress("DEPRECATION")
+            focusResult = audioManager.requestAudioFocus(
+                null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            )
+        }
+        Log.d(TAG, "PTT audio focus result: $focusResult")
+
         try {
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            audioManager.isSpeakerphoneOn = true
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, ENCODING)
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -226,13 +248,19 @@ class PushToTalkManager(
 
             val durationMs = (pcm.size.toLong() * 1000L) / (SAMPLE_RATE * 2)
             Log.d(TAG, "PTT playing ~${durationMs}ms")
-            delay(durationMs + 400)
+            delay(durationMs + 300)
             track.stop(); track.release()
         } catch (e: Exception) {
             Log.e(TAG, "PTT playback error", e)
         } finally {
-            audioManager.isSpeakerphoneOn = wasSpeakerOn
-            audioManager.mode = AudioManager.MODE_NORMAL
+            // Abandon focus so paused apps auto-resume
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
+            Log.d(TAG, "PTT audio focus released — other apps should resume")
         }
     }
 }
