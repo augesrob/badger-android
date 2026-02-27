@@ -508,12 +508,7 @@ fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Door $doorName", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = LightText)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (doorStatusStr.isNotBlank()) {
-                    Surface(shape = RoundedCornerShape(6.dp), color = statusColor) {
-                        Text(doorStatusStr, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                } else { Text("Tap to set status", color = MutedText, fontSize = 10.sp) }
-                // Dock lock chip — only for doors 13A-15B
+                // Dock lock chip — only for doors 13A-15B (shown first/left)
                 if (doorName in DOCK_LOCK_DOORS) {
                     val dockLock = door?.dockLockStatus
                     // Use dynamic admin-managed dock lock status values if available
@@ -534,6 +529,12 @@ fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>
                         Text(dockLabel, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                // Door status chip (shown second/right)
+                if (doorStatusStr.isNotBlank()) {
+                    Surface(shape = RoundedCornerShape(6.dp), color = statusColor) {
+                        Text(doorStatusStr, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else { Text("Tap to set status", color = MutedText, fontSize = 10.sp) }
                 Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MutedText, modifier = Modifier.size(14.dp))
             }
         }
