@@ -13,7 +13,10 @@ class BadgerApp : Application() {
                 supabaseKey = BuildConfig.SUPABASE_KEY
             ) {
                 install(Postgrest)
-                install(Realtime)
+                install(Realtime) {
+                    secure = true
+                    reconnectDelay = 3000
+                }
             }
         }
     }
