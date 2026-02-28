@@ -3,25 +3,31 @@ package com.badger.trucks.util
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import com.badger.trucks.BadgerApp
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 object RemoteLogger {
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var deviceId: String = "unknown"
     private var deviceName: String = "unknown"
+    private var initialized = false
 
     fun init(context: Context) {
         deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
         deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
+        initialized = true
     }
 
     fun log(level: String, tag: String, message: String) {
+        if (!initialized) return
+        Log.d("RemoteLogger", "[$level] $tag: $message")
         scope.launch {
             try {
                 BadgerApp.supabase.postgrest["debug_logs"].insert(
@@ -33,7 +39,9 @@ object RemoteLogger {
                         "message"     to JsonPrimitive(message)
                     ))
                 )
-            } catch (_: Exception) { /* silent — don't crash app on log failure */ }
+            } catch (e: Exception) {
+                Log.w("RemoteLogger", "Failed to send log: ${e.message}")
+            }
         }
     }
 

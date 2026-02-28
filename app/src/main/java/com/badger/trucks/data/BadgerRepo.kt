@@ -11,19 +11,34 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import com.badger.trucks.BadgerApp
+import com.badger.trucks.util.RemoteLogger
 
 object BadgerRepo {
     private val client get() = BadgerApp.supabase
 
     // ===== LOADING DOORS =====
-    suspend fun getLoadingDoors(): List<LoadingDoor> =
-        client.postgrest["loading_doors"]
-            .select { order("sort_order", Order.ASCENDING) }
-            .decodeList()
+    suspend fun getLoadingDoors(): List<LoadingDoor> {
+        return try {
+            val result = client.postgrest["loading_doors"]
+                .select { order("sort_order", Order.ASCENDING) }
+                .decodeList<LoadingDoor>()
+            RemoteLogger.d("BadgerRepo", "getLoadingDoors OK — ${result.size} doors")
+            result
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "getLoadingDoors FAILED: ${e.message}")
+            throw e
+        }
+    }
 
     suspend fun updateDoorStatus(id: Int, status: String) {
-        client.postgrest["loading_doors"]
-            .update({ set("door_status", status) }) { filter { eq("id", id) } }
+        try {
+            client.postgrest["loading_doors"]
+                .update({ set("door_status", status) }) { filter { eq("id", id) } }
+            RemoteLogger.i("BadgerRepo", "updateDoorStatus OK — id=$id status=$status")
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "updateDoorStatus FAILED id=$id: ${e.message}")
+            throw e
+        }
     }
 
     suspend fun updateDockLockStatus(id: Int, status: String?) {
@@ -88,10 +103,18 @@ object BadgerRepo {
     }
 
     // ===== LIVE MOVEMENT =====
-    suspend fun getLiveMovement(): List<LiveMovement> =
-        client.postgrest["live_movement"]
-            .select(Columns.raw("*, status_values(status_name, status_color)"))
-            .decodeList()
+    suspend fun getLiveMovement(): List<LiveMovement> {
+        return try {
+            val result = client.postgrest["live_movement"]
+                .select(Columns.raw("*, status_values(status_name, status_color)"))
+                .decodeList<LiveMovement>()
+            RemoteLogger.d("BadgerRepo", "getLiveMovement OK — ${result.size} trucks")
+            result
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "getLiveMovement FAILED: ${e.message}")
+            throw e
+        }
+    }
 
     suspend fun addToMovement(truckNumber: String, location: String?) {
         client.postgrest["live_movement"]
@@ -107,8 +130,14 @@ object BadgerRepo {
     }
 
     suspend fun updateMovementStatus(truckNumber: String, statusId: Int?) {
-        client.postgrest["live_movement"]
-            .update({ set("status_id", statusId) }) { filter { eq("truck_number", truckNumber) } }
+        try {
+            client.postgrest["live_movement"]
+                .update({ set("status_id", statusId) }) { filter { eq("truck_number", truckNumber) } }
+            RemoteLogger.i("BadgerRepo", "updateMovementStatus OK — truck=$truckNumber statusId=$statusId")
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "updateMovementStatus FAILED truck=$truckNumber: ${e.message}")
+            throw e
+        }
     }
 
     // ===== STATUS VALUES =====
