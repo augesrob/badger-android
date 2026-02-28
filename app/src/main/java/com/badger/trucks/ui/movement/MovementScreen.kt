@@ -71,8 +71,12 @@ fun MovementScreen() {
 
     // trucks and doors come directly from the service's live cache —
     // updates are instant (optimistic on voice command, then confirmed by Realtime)
-    val trucks by BadgerService.liveTrucks.collectAsState()
-    val doors  by BadgerService.liveDoors.collectAsState()
+    val serviceTrucks by BadgerService.liveTrucks.collectAsState()
+    val serviceDoors  by BadgerService.liveDoors.collectAsState()
+    var localTrucks by remember { mutableStateOf<List<LiveMovement>>(emptyList()) }
+    var localDoors  by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
+    val trucks = if (serviceTrucks.isNotEmpty()) serviceTrucks else localTrucks
+    val doors  = if (serviceDoors.isNotEmpty()) serviceDoors else localDoors
     var printroom by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
     var staging  by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var statuses by remember { mutableStateOf<List<StatusValue>>(emptyList()) }
@@ -120,14 +124,17 @@ fun MovementScreen() {
     }
 
     fun loadData() {
-        // trucks and doors are owned by BadgerService.liveTrucks/liveDoors StateFlows —
-        // no need to fetch them here; they update automatically and instantly
         scope.launch {
             try {
                 printroom = BadgerRepo.getPrintroomEntries()
                 staging   = BadgerRepo.getStagingDoors()
                 statuses  = BadgerRepo.getStatuses()
                 tractors  = BadgerRepo.getTractors()
+                // Also load trucks/doors directly in case service hasn't synced yet
+                val fetchedTrucks = BadgerRepo.getLiveMovement()
+                val fetchedDoors  = BadgerRepo.getLoadingDoors()
+                if (fetchedTrucks.isNotEmpty()) localTrucks = fetchedTrucks
+                if (fetchedDoors.isNotEmpty())  localDoors  = fetchedDoors
             } catch (e: Exception) { e.printStackTrace() }
         }
     }
