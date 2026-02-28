@@ -466,6 +466,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 val channel = BadgerRepo.realtimeChannel("badger-service-realtime")
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
+                    RemoteLogger.i("BadgerService", "Realtime event: live_movement ${it::class.simpleName}")
                     try {
                         val updated = BadgerRepo.getLiveMovement()
                         updated.forEach { truck ->
@@ -487,6 +488,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }.launchIn(scope)
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.onEach {
+                    RemoteLogger.i("BadgerService", "Realtime event: loading_doors ${it::class.simpleName}")
                     try {
                         val updated = BadgerRepo.getLoadingDoors()
                         updated.forEach { door ->
