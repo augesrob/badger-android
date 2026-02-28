@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
+import com.badger.trucks.util.RemoteLogger
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -110,8 +111,10 @@ class PushToTalkManager(
                     put("sender", "device")
                 })
                 Log.d(TAG, "PTT sent OK")
+                RemoteLogger.i("PTT", "PTT sent OK — ${pcm.size} bytes")
             } catch (e: Exception) {
                 Log.e(TAG, "PTT send error", e)
+                RemoteLogger.e("PTT", "PTT send FAILED: ${e.message}")
             }
         }
     }

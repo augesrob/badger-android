@@ -20,6 +20,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.badger.trucks.MainActivity
+import com.badger.trucks.util.RemoteLogger
 import com.badger.trucks.data.BadgerRepo
 import com.badger.trucks.data.DoorStatusValue
 import com.badger.trucks.data.DockLockStatusValue
@@ -155,6 +156,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         scope.launch { refreshVoiceData() }
         startRealtimeSync()
         Log.d("BadgerService", "Service created")
+        RemoteLogger.i("BadgerService", "Service started — URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -541,9 +543,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 channel.subscribe()
                 Log.d("BadgerService", "Realtime subscribed")
+                RemoteLogger.i("BadgerService", "Realtime subscribed OK")
 
             } catch (e: Exception) {
                 Log.e("BadgerService", "Realtime setup error: ${e.message}")
+                RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message}")
                 delay(10_000)
                 startRealtimeSync()
             }

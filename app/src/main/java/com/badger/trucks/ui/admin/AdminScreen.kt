@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AdminScreen() {
     var tab by remember { mutableStateOf(0) }
-    val tabs = listOf("Trucks", "Tractors", "Statuses", "Fleet")
+    val tabs = listOf("Trucks", "Tractors", "Statuses", "Fleet", "Debug")
 
     Column(
         modifier = Modifier
@@ -70,6 +70,7 @@ fun AdminScreen() {
             1 -> TractorSection()
             2 -> StatusSection()
             3 -> FleetSection()
+            4 -> DebugScreen()
         }
     }
 }
