@@ -154,15 +154,8 @@ fun MovementScreen() {
 
     LaunchedEffect(Unit) {
         loadData()
-        try {
-            val channel = BadgerRepo.realtimeChannel("movement-android")
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors"  }.collect { loadData() } }
-            channel.subscribe()
-            Log.d("MovementScreen", "Realtime subscribed")
-        } catch (e: Exception) {
-            Log.e("MovementScreen", "Realtime error: ${e.message}")
-        }
+        // Service already maintains the realtime channel for live_movement.
+        // This is just a 30s polling fallback in case the screen loads before the service syncs.
         launch {
             while (isActive) { delay(30_000L); loadData() }
         }

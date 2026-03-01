@@ -549,6 +549,26 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 Log.d("BadgerService", "Realtime subscribed — status=$status")
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK — channel status=$status")
 
+                // Heartbeat: poll every 30s, reconnect if channel silently dropped
+                while (true) {
+                    delay(30_000L)
+                    val currentStatus = channel.status.value
+                    if (currentStatus != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
+                        Log.w("BadgerService", "Realtime channel dropped (status=$currentStatus), reconnecting...")
+                        RemoteLogger.w("BadgerService", "Realtime dropped, reconnecting...")
+                        try { channel.unsubscribe() } catch (_: Exception) {}
+                        startRealtimeSync()
+                        return@launch
+                    } else {
+                        // Also do a REST poll as backup so UI never goes stale
+                        try {
+                            cachedTrucks = BadgerRepo.getLiveMovement()
+                            cachedDoors  = BadgerRepo.getLoadingDoors()
+                        } catch (e: Exception) { Log.w("BadgerService", "Heartbeat poll failed: ${e.message}") }
+                        Log.d("BadgerService", "Realtime heartbeat OK")
+                    }
+                }
+
             } catch (e: Exception) {
                 Log.e("BadgerService", "Realtime setup error: ${e.message}")
                 RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message}")
