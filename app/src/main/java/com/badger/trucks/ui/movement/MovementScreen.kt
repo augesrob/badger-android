@@ -75,8 +75,9 @@ fun MovementScreen() {
     val serviceDoors  by BadgerService.liveDoors.collectAsState()
     var localTrucks by remember { mutableStateOf<List<LiveMovement>>(emptyList()) }
     var localDoors  by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
-    val trucks = if (serviceTrucks.isNotEmpty()) serviceTrucks else localTrucks
-    val doors  = if (serviceDoors.isNotEmpty()) serviceDoors else localDoors
+    // localTrucks is source of truth (supports optimistic updates); service data syncs into it
+    val trucks = if (localTrucks.isNotEmpty()) localTrucks else serviceTrucks
+    val doors  = if (localDoors.isNotEmpty()) localDoors else serviceDoors
     var printroom by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
     var staging  by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var statuses by remember { mutableStateOf<List<StatusValue>>(emptyList()) }
@@ -206,10 +207,34 @@ fun MovementScreen() {
     }
     val sortedDoors = doors.map { it.doorName }.filter { doorGroups.containsKey(it) }
 
-    statusDialogTruck?.let { truck ->
-        TruckStatusDialog(truck = truck, statuses = statuses, onDismiss = { statusDialogTruck = null }, onSelect = { status ->
-            scope.launch { try { BadgerRepo.updateMovementStatus(truck.truckNumber, status.id); loadData() } catch (e: Exception) { e.printStackTrace() } }
+    // When service gets a realtime update, sync into localTrucks
+    LaunchedEffect(serviceTrucks) {
+        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
+    }
+    LaunchedEffect(serviceDoors) {
+        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
+    }
+
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
+
+    statusDialogTruck?.let { truck ->\n        TruckStatusDialog(truck = truck, statuses = statuses, onDismiss = { statusDialogTruck = null }, onSelect = { status ->\n            // Optimistic update — change UI instantly
+            val prevTrucks = localTrucks
+            localTrucks = localTrucks.map {
+                if (it.truckNumber == truck.truckNumber)
+                    it.copy(statusId = status.id, statusValues = LiveMovementStatus(statusName = status.statusName, statusColor = status.statusColor))
+                else it
+            }
             statusDialogTruck = null
+            scope.launch {
+                try {
+                    BadgerRepo.updateMovementStatus(truck.truckNumber, status.id)
+                    loadData() // confirm with server
+                } catch (e: Exception) {
+                    // Rollback on failure
+                    localTrucks = prevTrucks
+                    snackbarMessage = "❌ Failed to sync — check connection"
+                }
+            }
         })
     }
     doorStatusDialogDoor?.let { door ->
@@ -416,6 +441,33 @@ fun MovementScreen() {
                 Icon(Icons.Default.Build, contentDescription = "Fix All", tint = Color.White)
             }
             } // end showFixAll
+        }
+
+        // Sync failure snackbar
+        snackbarMessage?.let { msg ->
+            LaunchedEffect(msg) {
+                kotlinx.coroutines.delay(3000)
+                snackbarMessage = null
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEF4444),
+                    shadowElevation = 6.dp
+                ) {
+                    Text(
+                        text = msg,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
         }
     }
 }
