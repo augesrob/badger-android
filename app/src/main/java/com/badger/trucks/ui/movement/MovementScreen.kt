@@ -124,6 +124,14 @@ fun MovementScreen() {
         Toast.makeText(context, if (granted) "✅ Mic permission granted — press 📻 to talk" else "❌ Mic permission denied", Toast.LENGTH_LONG).show()
     }
 
+    // When service gets a realtime update, sync into localTrucks
+    LaunchedEffect(serviceTrucks) {
+        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
+    }
+    LaunchedEffect(serviceDoors) {
+        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
+    }
+
     fun loadData() {
         scope.launch {
             try {
@@ -207,17 +215,11 @@ fun MovementScreen() {
     }
     val sortedDoors = doors.map { it.doorName }.filter { doorGroups.containsKey(it) }
 
-    // When service gets a realtime update, sync into localTrucks
-    LaunchedEffect(serviceTrucks) {
-        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
-    }
-    LaunchedEffect(serviceDoors) {
-        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
-    }
-
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
-    statusDialogTruck?.let { truck ->\n        TruckStatusDialog(truck = truck, statuses = statuses, onDismiss = { statusDialogTruck = null }, onSelect = { status ->\n            // Optimistic update — change UI instantly
+    statusDialogTruck?.let { truck ->
+        TruckStatusDialog(truck = truck, statuses = statuses, onDismiss = { statusDialogTruck = null }, onSelect = { status ->
+            // Optimistic update — change UI instantly
             val prevTrucks = localTrucks
             localTrucks = localTrucks.map {
                 if (it.truckNumber == truck.truckNumber)
