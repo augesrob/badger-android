@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -62,7 +63,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.11" // For Kotlin 1.9.23
+        kotlinCompilerExtensionVersion = "1.5.11"
     }
 
     packaging {
@@ -75,7 +76,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
 
     // Compose
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.02") // For compiler 1.5.11
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -89,18 +90,18 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Supabase & Ktor - Explicit versions
-    val supabaseVersion = "2.5.0"
-    implementation("io.github.jan-tennert.supabase:gotrue-kt:$supabaseVersion")
+    val supabaseVersion = "3.1.4"
     implementation("io.github.jan-tennert.supabase:postgrest-kt:$supabaseVersion")
     implementation("io.github.jan-tennert.supabase:realtime-kt:$supabaseVersion")
-    
-    val ktorVersion = "2.3.7"
+    implementation("io.github.jan-tennert.supabase:auth-kt:$supabaseVersion")
+
+    val ktorVersion = "3.1.1"
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
     // Kotlinx Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
