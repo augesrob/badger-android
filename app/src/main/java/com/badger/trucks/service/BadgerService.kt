@@ -543,9 +543,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     } catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues refresh: ${'$'}{e.message}") }
                 }.launchIn(scope)
 
-                channel.subscribe()
-                Log.d("BadgerService", "Realtime subscribed")
-                RemoteLogger.i("BadgerService", "Realtime subscribed OK")
+                RemoteLogger.i("BadgerService", "Calling channel.subscribe()...")
+                channel.subscribe(blockUntilSubscribed = true)
+                val status = channel.status.value
+                Log.d("BadgerService", "Realtime subscribed — status=$status")
+                RemoteLogger.i("BadgerService", "Realtime subscribed OK — channel status=$status")
 
             } catch (e: Exception) {
                 Log.e("BadgerService", "Realtime setup error: ${e.message}")

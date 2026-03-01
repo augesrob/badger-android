@@ -12,7 +12,10 @@ class BadgerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         RemoteLogger.init(this)
-        RemoteLogger.i("BadgerApp", "App started — ${BuildConfig.SUPABASE_URL}")
+        val url = BuildConfig.SUPABASE_URL
+        val wsUrl = url.replace("https://", "wss://").replace("http://", "ws://") + "/realtime/v1/websocket"
+        RemoteLogger.i("BadgerApp", "App started — REST: $url")
+        RemoteLogger.i("BadgerApp", "WebSocket URL will be: $wsUrl")
     }
 
     companion object {
@@ -25,6 +28,7 @@ class BadgerApp : Application() {
                 install(Realtime) {
                     secure = true
                     reconnectDelay = 3.seconds
+                    heartbeatInterval = 15.seconds
                 }
             }
         }
