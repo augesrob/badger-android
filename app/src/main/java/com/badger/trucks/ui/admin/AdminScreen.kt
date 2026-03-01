@@ -253,7 +253,16 @@ fun TractorSection() {
             trailerList = trailerList,
             onDismiss = { editTractor = null },
             onSave = { updated ->
-                scope.launch { try { BadgerRepo.updateTractor(t.id, updated); load() } catch (e: Exception) { e.printStackTrace() } }
+                scope.launch {
+                    try {
+                        BadgerRepo.updateTractor(t.id, updated)
+                        com.badger.trucks.util.RemoteLogger.i("AdminScreen", "updateTractor OK — id=${t.id}")
+                        load()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        com.badger.trucks.util.RemoteLogger.e("AdminScreen", "updateTractor FAILED — id=${t.id}: ${e.message}")
+                    }
+                }
                 editTractor = null
             }
         )
