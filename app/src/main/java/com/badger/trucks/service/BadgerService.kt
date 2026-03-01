@@ -549,9 +549,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 Log.d("BadgerService", "Realtime subscribed — status=$status")
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK — channel status=$status")
 
-                // Heartbeat: poll every 30s, reconnect if channel silently dropped
+                // Heartbeat: poll every 10s — detects changes even if realtime events are missed
                 while (true) {
-                    delay(30_000L)
+                    delay(10_000L)
                     val currentStatus = channel.status.value
                     if (currentStatus != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
                         Log.w("BadgerService", "Realtime channel dropped (status=$currentStatus), reconnecting...")
@@ -559,14 +559,26 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         try { channel.unsubscribe() } catch (_: Exception) {}
                         startRealtimeSync()
                         return@launch
-                    } else {
-                        // Also do a REST poll as backup so UI never goes stale
-                        try {
-                            cachedTrucks = BadgerRepo.getLiveMovement()
-                            cachedDoors  = BadgerRepo.getLoadingDoors()
-                        } catch (e: Exception) { Log.w("BadgerService", "Heartbeat poll failed: ${e.message}") }
-                        Log.d("BadgerService", "Realtime heartbeat OK")
                     }
+                    // Poll and compare — triggers TTS/notifications even when realtime events are missed
+                    try {
+                        val updated = BadgerRepo.getLiveMovement()
+                        updated.forEach { truck ->
+                            val prev = knownStatuses[truck.truckNumber]
+                            val curr = truck.statusName
+                            if (prev != null && curr != null && prev != curr) {
+                                Log.d("BadgerService", "Polling detected change: ${truck.truckNumber} $prev -> $curr")
+                                speak("Truck ${truck.truckNumber}, $curr")
+                                if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS)) {
+                                    pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS, "🚚 Truck ${truck.truckNumber}",
+                                        "$prev → $curr${truck.currentLocation?.let { " @ $it" } ?: ""}", "truck_${truck.truckNumber}")
+                                }
+                            }
+                            knownStatuses[truck.truckNumber] = curr
+                        }
+                        cachedTrucks = updated
+                        cachedDoors = BadgerRepo.getLoadingDoors()
+                    } catch (e: Exception) { Log.w("BadgerService", "Heartbeat poll failed: ${e.message}") }
                 }
 
             } catch (e: Exception) {
