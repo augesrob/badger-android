@@ -8,6 +8,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import com.badger.trucks.BuildConfig
+import com.badger.trucks.util.RemoteLogger
 import com.badger.trucks.data.*
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
@@ -224,9 +225,13 @@ object VoiceCommandProcessor {
         Log.d("VoiceCmd", "Normalized: '$normalized'")
 
         // Try direct Kotlin parse first — fast and reliable
-        directParse(normalized, trucks, doors, statuses)?.let { return@withContext it }
+        directParse(normalized, trucks, doors, statuses)?.let {
+            RemoteLogger.d("Voice", "DirectParse: \"$normalized\" → action=${it.action} truck=${it.truck} status=${it.status}")
+            return@withContext it
+        }
 
         // Fall back to Gemini for complex commands (door statuses, locations, etc.)
+        RemoteLogger.d("Gemini", "Calling Gemini for: \"$normalized\"")
         val truckList    = trucks.map { it.truckNumber }.joinToString(", ")
         val doorList     = doors.map { it.doorName }.joinToString(", ")
         val statusList   = statuses.map { it.statusName }.joinToString(", ")
@@ -284,9 +289,11 @@ Now parse: "$normalized"
             clean = content.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val cmd = json.decodeFromString<VoiceCommand>(clean)
             Log.d("VoiceCmd", "Gemini: '$normalized' → action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
+            RemoteLogger.i("Gemini", "✅ Parsed: \"$normalized\" → action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
             cmd
         } catch (e: Exception) {
             Log.e("VoiceCmd", "Gemini failed for '$normalized' raw=$clean", e)
+            RemoteLogger.e("Gemini", "❌ Failed for \"$normalized\" — ${e.message}")
             VoiceCommand("unknown")
         }
     }

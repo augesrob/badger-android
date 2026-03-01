@@ -49,6 +49,7 @@ import com.badger.trucks.voice.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
+import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -227,6 +228,7 @@ fun MovementScreen() {
                 else it
             }
             statusDialogTruck = null
+            RemoteLogger.i("Movement", "Truck ${truck.truckNumber} status → ${status.statusName}")
             scope.launch {
                 try {
                     BadgerRepo.updateMovementStatus(truck.truckNumber, status.id)
@@ -241,6 +243,7 @@ fun MovementScreen() {
     }
     doorStatusDialogDoor?.let { door ->
         DoorStatusDialog(door = door, doorStatusValues = doorStatusValues, onDismiss = { doorStatusDialogDoor = null }, onSelect = { newStatus ->
+            RemoteLogger.i("Movement", "Door ${door.doorName} status → $newStatus")
             scope.launch { try { BadgerRepo.updateDoorStatus(door.id, newStatus); loadData() } catch (e: Exception) { e.printStackTrace() } }
             doorStatusDialogDoor = null
         })
@@ -248,6 +251,7 @@ fun MovementScreen() {
 
     dockLockDialogDoor?.let { door ->
         DockLockDialog(door = door, dockLockStatusValues = dockLockStatusValues, onDismiss = { dockLockDialogDoor = null }, onSelect = { newStatus ->
+            RemoteLogger.i("Movement", "Door ${door.doorName} dock lock → ${newStatus ?: "cleared"}")
             scope.launch { try { BadgerRepo.updateDockLockStatus(door.id, newStatus); loadData() } catch (e: Exception) { e.printStackTrace() } }
             dockLockDialogDoor = null
         })

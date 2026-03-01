@@ -136,6 +136,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         pttManager = PushToTalkManager(this, scope).also { mgr ->
             mgr.onIncoming = {
                 _pttIncoming.value = true
+                RemoteLogger.i("PTT", "Incoming PTT message received")
                 NotificationHelper.postNotification(this, NotificationHelper.CHANNEL_SYSTEM, "📻 Incoming PTT", "Someone is talking on the radio", "ptt_incoming")
             }
             mgr.onDone = { _pttIncoming.value = false }
@@ -165,9 +166,18 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 ttsEnabled = !ttsEnabled
                 updateServiceNotification()
                 if (ttsEnabled) speak("Text to speech enabled")
+                RemoteLogger.i("TTS", "TTS ${if (ttsEnabled) "ENABLED" else "DISABLED"}")
             }
-            ACTION_PTT_START -> { _pttRecording.value = true;  pttManager?.startRecording() }
-            ACTION_PTT_STOP  -> { _pttRecording.value = false; pttManager?.stopRecording()  }
+            ACTION_PTT_START -> {
+                _pttRecording.value = true
+                pttManager?.startRecording()
+                RemoteLogger.i("PTT", "PTT recording STARTED")
+            }
+            ACTION_PTT_STOP  -> {
+                _pttRecording.value = false
+                pttManager?.stopRecording()
+                RemoteLogger.i("PTT", "PTT recording STOPPED — sending")
+            }
             ACTION_MANUAL_VOICE -> mainHandler.post { onHotwordDetected() }
             ACTION_APPLY_SETTINGS -> applySettingsLive()
             ACTION_STOP -> stopSelf()
@@ -313,6 +323,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun onCommandResult(text: String) {
         _hotwordActive.value   = false
         _voiceProcessing.value = true
+        RemoteLogger.i("Voice", "Command heard: \"$text\"")
 
         scope.launch {
             try {
@@ -323,6 +334,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     is VoiceResult.Success -> "✅ ${result.description}" to result.description
                     is VoiceResult.Error   -> "❌ ${result.message}" to "Sorry, ${result.message}"
                     VoiceResult.Unknown    -> "🤔 Didn't understand: \"$text\"" to "I didn't understand that"
+                }
+
+                when (result) {
+                    is VoiceResult.Success -> RemoteLogger.i("Voice", "✅ ${result.description} — action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
+                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "❌ ${result.message} — heard: \"$text\"")
+                    VoiceResult.Unknown    -> RemoteLogger.w("Voice", "🤔 Unknown command: \"$text\"")
                 }
 
                 _voiceFeedback.value   = feedback
@@ -381,6 +398,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _hotwordActive.value   = false
         _voiceProcessing.value = false
         _voiceFeedback.value   = "❌ $err"
+        RemoteLogger.w("Voice", "Speech recognition error: $err")
         scope.launch {
             delay(2000)
             _voiceFeedback.value = null
