@@ -55,7 +55,7 @@ fun PrintRoomScreen() {
                 entries = BadgerRepo.getPrintroomEntries()
                 staging = BadgerRepo.getStagingDoors()
                 routes = BadgerRepo.getRoutes()
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
             loading = false
         }
     }
@@ -68,7 +68,7 @@ fun PrintRoomScreen() {
                 table = "printroom_entries"
             }.collect { loadData() }
             channel.subscribe()
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
     }
 
     // Add truck dialog
@@ -117,7 +117,7 @@ fun PrintRoomScreen() {
                                 BadgerRepo.addToMovement(entry.truckNumber, preshiftLoc)
                             }
                             loadData()
-                        } catch (e: Exception) { e.printStackTrace() }
+                        } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                     }
                     addDialogDoor = null
                 }
@@ -151,7 +151,7 @@ fun PrintRoomScreen() {
                             BadgerRepo.addToMovement(entry.truckNumber, preshiftLoc)
                         }
                         loadData()
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                 }
                 pendingAdd = null
             },
@@ -170,7 +170,7 @@ fun PrintRoomScreen() {
                     try {
                         BadgerRepo.upsertPrintroomEntry(updated)
                         loadData()
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                 }
                 editDialogEntry = null
             },
@@ -179,7 +179,7 @@ fun PrintRoomScreen() {
                     try {
                         BadgerRepo.deletePrintroomEntry(entry.id)
                         loadData()
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                 }
                 editDialogEntry = null
             }

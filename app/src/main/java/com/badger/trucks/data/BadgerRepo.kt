@@ -68,10 +68,13 @@ object BadgerRepo {
             }
             .decodeList()
 
-    suspend fun upsertPrintroomEntry(entry: PrintroomEntry): PrintroomEntry =
-        client.postgrest["printroom_entries"]
-            .upsert(entry) { select() }
+    suspend fun upsertPrintroomEntry(entry: PrintroomEntry): PrintroomEntry {
+        // Strip joined fields — only send columns that exist in the table
+        val clean = entry.copy(loadingDoor = null)
+        return client.postgrest["printroom_entries"]
+            .upsert(clean) { select() }
             .decodeSingle()
+    }
 
     suspend fun deletePrintroomEntry(id: Int) {
         client.postgrest["printroom_entries"]
