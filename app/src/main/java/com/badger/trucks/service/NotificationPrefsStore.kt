@@ -31,6 +31,15 @@ object NotificationPrefsStore {
     const val KEY_SHOW_MIC      = "ui_show_mic"      // Voice command mic button
     const val KEY_SHOW_FIXALL   = "ui_show_fixall"   // Fix All wrench button
 
+    // PTT audio focus mode
+    // Values: "audio_focus" | "mute" | "priority" | "lower" | "off"
+    const val KEY_PTT_AUDIO_MODE = "ptt_audio_mode"
+    const val PTT_AUDIO_FOCUS   = "audio_focus"   // Request audio focus (pause other apps)
+    const val PTT_AUDIO_MUTE    = "mute"           // Mute other apps entirely
+    const val PTT_AUDIO_PRIORITY = "priority"      // Use AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+    const val PTT_AUDIO_LOWER   = "lower"          // Duck (lower) other apps
+    const val PTT_AUDIO_OFF     = "off"            // No audio focus management
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -39,6 +48,12 @@ object NotificationPrefsStore {
 
     fun set(context: Context, key: String, value: Boolean) =
         prefs(context).edit().putBoolean(key, value).apply()
+
+    fun getPttAudioMode(context: Context): String =
+        prefs(context).getString(KEY_PTT_AUDIO_MODE, PTT_AUDIO_FOCUS) ?: PTT_AUDIO_FOCUS
+
+    fun setPttAudioMode(context: Context, mode: String) =
+        prefs(context).edit().putString(KEY_PTT_AUDIO_MODE, mode).apply()
 
     fun getAll(context: Context): Map<String, Boolean> {
         val p = prefs(context)

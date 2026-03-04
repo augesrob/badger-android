@@ -199,15 +199,40 @@ class PushToTalkManager(
     private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.IO) {
         if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM"); return@withContext }
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val wasSpeakerOn = audioManager.isSpeakerphoneOn
+        val audioMode = com.badger.trucks.service.NotificationPrefsStore.getPttAudioMode(context)
+        Log.d(TAG, "PTT playback audioMode=$audioMode")
+
+        // Request audio focus based on user setting
+        val focusRequest: android.media.AudioFocusRequest? = when (audioMode) {
+            com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_OFF -> null
+            else -> {
+                val focusGain = when (audioMode) {
+                    com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_MUTE     -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+                    com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_PRIORITY -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+                    com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_LOWER    -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                    else -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT  // audio_focus default
+                }
+                android.media.AudioFocusRequest.Builder(focusGain)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(false)
+                    .setWillPauseWhenDucked(audioMode == com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_MUTE)
+                    .build()
+            }
+        }
+        focusRequest?.let { audioManager.requestAudioFocus(it) }
+
         try {
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            audioManager.isSpeakerphoneOn = true
+            // Use STREAM_MUSIC at full media volume — much louder than MODE_IN_COMMUNICATION
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, ENCODING)
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -231,8 +256,7 @@ class PushToTalkManager(
         } catch (e: Exception) {
             Log.e(TAG, "PTT playback error", e)
         } finally {
-            audioManager.isSpeakerphoneOn = wasSpeakerOn
-            audioManager.mode = AudioManager.MODE_NORMAL
+            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         }
     }
 }

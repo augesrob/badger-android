@@ -109,6 +109,7 @@ fun NotificationSettingsScreen() {
     val context = LocalContext.current
     var prefs by remember { mutableStateOf(NotificationPrefsStore.getAll(context)) }
     var saved by remember { mutableStateOf(false) }
+    var pttAudioMode by remember { mutableStateOf(NotificationPrefsStore.getPttAudioMode(context)) }
 
     fun toggle(key: String) {
         val updated = prefs.toMutableMap()
@@ -213,6 +214,69 @@ fun NotificationSettingsScreen() {
                 onToggle = { toggle(item.key) },
                 accentColor = Color(0xFF8B5CF6)
             )
+        }
+
+        Divider(color = DarkBorder, thickness = 1.dp)
+
+        // PTT audio focus section
+        SectionLabel("PTT Incoming Audio")
+        Text(
+            "Controls how other apps behave when a PTT message plays.",
+            fontSize = 12.sp,
+            color = Color.Gray
+        )
+        Spacer(Modifier.height(4.dp))
+
+        val pttOptions = listOf(
+            Triple(NotificationPrefsStore.PTT_AUDIO_FOCUS,    "Audio Focus",         "Politely pause other apps while PTT plays"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_MUTE,     "Mute Other Apps",     "Silence other apps completely during PTT"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_PRIORITY, "Priority",            "Exclusive focus — strongest interrupt"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_LOWER,    "Lower Volume of Others", "Duck other audio down while PTT plays"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_OFF,      "Off",                 "No audio management — play over everything"),
+        )
+        pttOptions.forEach { (value, label, desc) ->
+            val selected = pttAudioMode == value
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (selected) DarkCard else Color(0xFF111111)
+                ),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        pttAudioMode = value
+                        NotificationPrefsStore.setPttAudioMode(context, value)
+                        saved = true
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    RadioButton(
+                        selected = selected,
+                        onClick = {
+                            pttAudioMode = value
+                            NotificationPrefsStore.setPttAudioMode(context, value)
+                            saved = true
+                        },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = Amber,
+                            unselectedColor = Color.Gray
+                        )
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            label,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (selected) Color.White else Color.Gray
+                        )
+                        Text(desc, fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
+            }
         }
 
         Spacer(Modifier.height(24.dp))
