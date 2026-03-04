@@ -31,14 +31,20 @@ object NotificationPrefsStore {
     const val KEY_SHOW_MIC      = "ui_show_mic"      // Voice command mic button
     const val KEY_SHOW_FIXALL   = "ui_show_fixall"   // Fix All wrench button
 
-    // PTT audio focus mode
-    // Values: "audio_focus" | "mute" | "priority" | "lower" | "off"
-    const val KEY_PTT_AUDIO_MODE = "ptt_audio_mode"
-    const val PTT_AUDIO_FOCUS    = "audio_focus"   // Request audio focus (pause other apps)
-    const val PTT_AUDIO_MUTE     = "mute"           // Mute other apps entirely
-    const val PTT_AUDIO_PRIORITY = "priority"       // Use AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
-    const val PTT_AUDIO_LOWER    = "lower"          // Duck (lower) other apps
-    const val PTT_AUDIO_OFF      = "off"            // No audio focus management
+    // PTT audio focus mode (used by PushToTalk.kt + NotificationSettingsScreen)
+    const val KEY_PTT_AUDIO_MODE  = "ptt_audio_mode"
+    const val PTT_AUDIO_FOCUS     = "audio_focus"
+    const val PTT_AUDIO_MUTE      = "mute"
+    const val PTT_AUDIO_PRIORITY  = "priority"
+    const val PTT_AUDIO_LOWER     = "lower"
+    const val PTT_AUDIO_OFF       = "off"
+
+    // TTS audio focus mode (used by BadgerService.kt)
+    const val KEY_AUDIO_FOCUS       = "audio_focus_mode"
+    const val AUDIO_FOCUS_EXCLUSIVE = "exclusive"
+    const val AUDIO_FOCUS_TRANSIENT = "transient"
+    const val AUDIO_FOCUS_DUCK      = "duck"
+    const val AUDIO_FOCUS_OFF       = "off"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
