@@ -49,6 +49,7 @@ import com.badger.trucks.voice.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
+import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -71,11 +72,18 @@ fun MovementScreen() {
 
     // trucks and doors come directly from the service's live cache —
     // updates are instant (optimistic on voice command, then confirmed by Realtime)
-    val trucks by BadgerService.liveTrucks.collectAsState()
-    val doors  by BadgerService.liveDoors.collectAsState()
+    val serviceTrucks by BadgerService.liveTrucks.collectAsState()
+    val serviceDoors  by BadgerService.liveDoors.collectAsState()
+    var localTrucks by remember { mutableStateOf<List<LiveMovement>>(emptyList()) }
+    var localDoors  by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
+    // localTrucks is source of truth (supports optimistic updates); service data syncs into it
+    val trucks = if (localTrucks.isNotEmpty()) localTrucks else serviceTrucks
+    val doors  = if (localDoors.isNotEmpty()) localDoors else serviceDoors
     var printroom by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
     var staging  by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var statuses by remember { mutableStateOf<List<StatusValue>>(emptyList()) }
+    val doorStatusValues by BadgerService.liveDoorStatusValues.collectAsState()
+    val dockLockStatusValues by BadgerService.liveDockLockStatusValues.collectAsState()
     var tractors by remember { mutableStateOf<List<Tractor>>(emptyList()) }
     var search   by remember { mutableStateOf("") }
     var filter   by remember { mutableStateOf("all") }
@@ -91,6 +99,7 @@ fun MovementScreen() {
 
     var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }
     var doorStatusDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
+    var dockLockDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
 
     // Voice state — observe from service so hotword and mic button share same UI
     val hotwordActive   by BadgerService.hotwordActive.collectAsState()
@@ -116,15 +125,26 @@ fun MovementScreen() {
         Toast.makeText(context, if (granted) "✅ Mic permission granted — press 📻 to talk" else "❌ Mic permission denied", Toast.LENGTH_LONG).show()
     }
 
+    // When service gets a realtime update, sync into localTrucks
+    LaunchedEffect(serviceTrucks) {
+        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
+    }
+    LaunchedEffect(serviceDoors) {
+        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
+    }
+
     fun loadData() {
-        // trucks and doors are owned by BadgerService.liveTrucks/liveDoors StateFlows —
-        // no need to fetch them here; they update automatically and instantly
         scope.launch {
             try {
                 printroom = BadgerRepo.getPrintroomEntries()
                 staging   = BadgerRepo.getStagingDoors()
                 statuses  = BadgerRepo.getStatuses()
                 tractors  = BadgerRepo.getTractors()
+                // Also load trucks/doors directly in case service hasn't synced yet
+                val fetchedTrucks = BadgerRepo.getLiveMovement()
+                val fetchedDoors  = BadgerRepo.getLoadingDoors()
+                if (fetchedTrucks.isNotEmpty()) localTrucks = fetchedTrucks
+                if (fetchedDoors.isNotEmpty())  localDoors  = fetchedDoors
             } catch (e: Exception) { e.printStackTrace() }
         }
     }
@@ -144,17 +164,10 @@ fun MovementScreen() {
 
     LaunchedEffect(Unit) {
         loadData()
-        try {
-            val channel = BadgerRepo.realtimeChannel("movement-android")
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.collect { loadData() } }
-            launch { channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors"  }.collect { loadData() } }
-            channel.subscribe()
-            Log.d("MovementScreen", "Realtime subscribed")
-        } catch (e: Exception) {
-            Log.e("MovementScreen", "Realtime error: ${e.message}")
-        }
+        // Service already maintains the realtime channel for live_movement.
+        // This is just a 30s polling fallback in case the screen loads before the service syncs.
         launch {
-            while (isActive) { delay(30_000L); loadData() }
+            while (isActive) { delay(1_000L); loadData() }
         }
     }
 
@@ -203,16 +216,44 @@ fun MovementScreen() {
     }
     val sortedDoors = doors.map { it.doorName }.filter { doorGroups.containsKey(it) }
 
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
+
     statusDialogTruck?.let { truck ->
         TruckStatusDialog(truck = truck, statuses = statuses, onDismiss = { statusDialogTruck = null }, onSelect = { status ->
-            scope.launch { try { BadgerRepo.updateMovementStatus(truck.truckNumber, status.id); loadData() } catch (e: Exception) { e.printStackTrace() } }
+            // Optimistic update — change UI instantly
+            val prevTrucks = localTrucks
+            localTrucks = localTrucks.map {
+                if (it.truckNumber == truck.truckNumber)
+                    it.copy(statusId = status.id, statusValues = LiveMovementStatus(statusName = status.statusName, statusColor = status.statusColor))
+                else it
+            }
             statusDialogTruck = null
+            RemoteLogger.i("Movement", "Truck ${truck.truckNumber} status → ${status.statusName}")
+            scope.launch {
+                try {
+                    BadgerRepo.updateMovementStatus(truck.truckNumber, status.id)
+                    loadData() // confirm with server
+                } catch (e: Exception) {
+                    // Rollback on failure
+                    localTrucks = prevTrucks
+                    snackbarMessage = "❌ Failed to sync — check connection"
+                }
+            }
         })
     }
     doorStatusDialogDoor?.let { door ->
-        DoorStatusDialog(door = door, onDismiss = { doorStatusDialogDoor = null }, onSelect = { newStatus ->
+        DoorStatusDialog(door = door, doorStatusValues = doorStatusValues, onDismiss = { doorStatusDialogDoor = null }, onSelect = { newStatus ->
+            RemoteLogger.i("Movement", "Door ${door.doorName} status → $newStatus")
             scope.launch { try { BadgerRepo.updateDoorStatus(door.id, newStatus); loadData() } catch (e: Exception) { e.printStackTrace() } }
             doorStatusDialogDoor = null
+        })
+    }
+
+    dockLockDialogDoor?.let { door ->
+        DockLockDialog(door = door, dockLockStatusValues = dockLockStatusValues, onDismiss = { dockLockDialogDoor = null }, onSelect = { newStatus ->
+            RemoteLogger.i("Movement", "Door ${door.doorName} dock lock → ${newStatus ?: "cleared"}")
+            scope.launch { try { BadgerRepo.updateDockLockStatus(door.id, newStatus); loadData() } catch (e: Exception) { e.printStackTrace() } }
+            dockLockDialogDoor = null
         })
     }
 
@@ -311,8 +352,11 @@ fun MovementScreen() {
                 DoorSection(
                     door = doorObj, doorName = doorName, trucks = group, truckToDoor = truckToDoor,
                     preshiftLookup = preshiftLookup, behindLookup = behindLookup, tractors = tractors,
+                    doorStatusValues = doorStatusValues,
+                    dockLockStatusValues = dockLockStatusValues,
                     onTruckTap = { statusDialogTruck = it },
-                    onDoorHeaderTap = { doorObj?.let { doorStatusDialogDoor = it } }
+                    onDoorHeaderTap = { doorObj?.let { doorStatusDialogDoor = it } },
+                    onDockLockTap = { doorObj?.let { dockLockDialogDoor = it } }
                 )
             }
         }
@@ -404,6 +448,33 @@ fun MovementScreen() {
             }
             } // end showFixAll
         }
+
+        // Sync failure snackbar
+        snackbarMessage?.let { msg ->
+            LaunchedEffect(msg) {
+                kotlinx.coroutines.delay(3000)
+                snackbarMessage = null
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEF4444),
+                    shadowElevation = 6.dp
+                ) {
+                    Text(
+                        text = msg,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -442,7 +513,7 @@ fun TruckStatusDialog(truck: LiveMovement, statuses: List<StatusValue>, onDismis
 }
 
 @Composable
-fun DoorStatusDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+fun DoorStatusDialog(door: LoadingDoor, doorStatusValues: List<DoorStatusValue>, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
             Column(Modifier.padding(20.dp)) {
@@ -452,17 +523,19 @@ fun DoorStatusDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String
                 }
                 Text("Select door status:", color = MutedText, fontSize = 13.sp)
                 Spacer(Modifier.height(12.dp))
-                DOOR_STATUSES.forEach { status ->
-                    val isSelected = door.doorStatus == status
-                    val color = Color(doorStatusColor(status))
+                val statusList = if (doorStatusValues.isNotEmpty()) doorStatusValues else
+                    DOOR_STATUSES.map { DoorStatusValue(statusName = it, statusColor = "#" + java.lang.Long.toHexString(doorStatusColor(it) and 0xFFFFFF).padStart(6, '0').uppercase()) }
+                statusList.forEach { dsv ->
+                    val isSelected = door.doorStatus == dsv.statusName
+                    val color = try { Color(android.graphics.Color.parseColor(dsv.statusColor)) } catch (_: Exception) { MutedText }
                     Row(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                             .background(if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent)
-                            .clickable { onSelect(status) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            .clickable { onSelect(dsv.statusName) }.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
-                        Text(status, color = if (isSelected) color else LightText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 15.sp)
+                        Text(dsv.statusName, color = if (isSelected) color else LightText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 15.sp)
                         if (isSelected) { Spacer(Modifier.weight(1f)); Text("✓", color = color, fontWeight = FontWeight.ExtraBold) }
                     }
                 }
@@ -480,14 +553,41 @@ fun DoorStatusDialog(door: LoadingDoor, onDismiss: () -> Unit, onSelect: (String
 @Composable
 fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>, truckToDoor: Map<String, DoorInfo>,
                 preshiftLookup: Map<String, String>, behindLookup: Map<String, String>, tractors: List<Tractor>,
-                onTruckTap: (LiveMovement) -> Unit, onDoorHeaderTap: () -> Unit) {
+                doorStatusValues: List<DoorStatusValue>,
+                dockLockStatusValues: List<DockLockStatusValue>,
+                onTruckTap: (LiveMovement) -> Unit, onDoorHeaderTap: () -> Unit, onDockLockTap: () -> Unit) {
     val doorStatusStr = door?.doorStatus ?: ""
-    val statusColor = Color(doorStatusColor(doorStatusStr))
+    val statusColor = if (doorStatusValues.isNotEmpty()) {
+        val dsv = doorStatusValues.find { it.statusName == doorStatusStr }
+        try { Color(android.graphics.Color.parseColor(dsv?.statusColor ?: "#6b7280")) } catch (_: Exception) { MutedText }
+    } else Color(doorStatusColor(doorStatusStr))
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = DarkSurface), shape = RoundedCornerShape(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth().background(DarkCard).clickable { onDoorHeaderTap() }.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Door $doorName", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = LightText)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Dock lock chip — only for doors 13A-15B (shown first/left)
+                if (doorName in DOCK_LOCK_DOORS) {
+                    val dockLock = door?.dockLockStatus
+                    // Use dynamic admin-managed dock lock status values if available
+                    val matchedDsv = dockLockStatusValues.find { it.statusName.lowercase() == dockLock?.lowercase() }
+                    val dockColor = when {
+                        matchedDsv != null -> try { Color(android.graphics.Color.parseColor(matchedDsv.statusColor)) } catch (_: Exception) { Color(0xFF374151) }
+                        dockLock == "working"     -> Color(0xFF22C55E)
+                        dockLock == "not_working" -> Color(0xFFEF4444)
+                        else                      -> Color(0xFF374151)
+                    }
+                    val dockLabel = matchedDsv?.statusName ?: when (dockLock) {
+                        "working"     -> "🔒 Working"
+                        "not_working" -> "🔓 Not Working"
+                        else          -> "🔒 Dock Lock"
+                    }
+                    Surface(shape = RoundedCornerShape(6.dp), color = dockColor,
+                        modifier = Modifier.clickable { onDockLockTap() }) {
+                        Text(dockLabel, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                // Door status chip (shown second/right)
                 if (doorStatusStr.isNotBlank()) {
                     Surface(shape = RoundedCornerShape(6.dp), color = statusColor) {
                         Text(doorStatusStr, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -556,4 +656,50 @@ fun resolveTrailer(truckNum: String, tractors: List<Tractor>): String? {
     if (slot !in 1..4) return null
     val tractor = tractors.find { it.truckNumber == tractorNum } ?: return null
     return when (slot) { 1 -> tractor.trailer1?.trailerNumber; 2 -> tractor.trailer2?.trailerNumber; 3 -> tractor.trailer3?.trailerNumber; 4 -> tractor.trailer4?.trailerNumber; else -> null }
+}
+
+// ─── Dock Lock Dialog ─────────────────────────────────────────────────────────
+
+@Composable
+fun DockLockDialog(door: LoadingDoor, dockLockStatusValues: List<DockLockStatusValue> = emptyList(), onDismiss: () -> Unit, onSelect: (String?) -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = DarkSurface)) {
+            Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Door ${door.doorName} — Dock Lock", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Amber500)
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close", tint = MutedText) }
+                }
+                Spacer(Modifier.height(12.dp))
+                // Use admin-managed status values if available, otherwise show defaults
+                val options: List<Triple<String, String, Color>> = if (dockLockStatusValues.isNotEmpty())
+                    dockLockStatusValues.map { dsv ->
+                        Triple(dsv.statusName, dsv.statusName,
+                            try { Color(android.graphics.Color.parseColor(dsv.statusColor)) } catch (_: Exception) { Color(0xFF6B7280) })
+                    }
+                else listOf(
+                    Triple("working",     "🔒 Working",     Color(0xFF22C55E)),
+                    Triple("not_working", "🔓 Not Working", Color(0xFFEF4444)),
+                )
+                options.forEach { (value, label, color) ->
+                    val isSelected = door.dockLockStatus?.lowercase() == value.lowercase()
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent)
+                            .clickable { onSelect(value) }.padding(horizontal = 12.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(Modifier.size(12.dp).background(color, RoundedCornerShape(3.dp)))
+                        Text(label, color = if (isSelected) color else LightText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 15.sp)
+                        if (isSelected) { Spacer(Modifier.weight(1f)); Text("✓", color = color, fontWeight = FontWeight.ExtraBold) }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Divider(color = DarkBorder)
+                Spacer(Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onSelect(null) }.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Text("Clear / Unknown", color = MutedText, fontSize = 14.sp)
+                }
+            }
+        }
+    }
 }

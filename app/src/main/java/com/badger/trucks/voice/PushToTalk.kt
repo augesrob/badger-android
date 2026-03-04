@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
+import com.badger.trucks.util.RemoteLogger
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -11,6 +12,7 @@ import android.util.Base64
 import android.util.Log
 import com.badger.trucks.BadgerApp
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
@@ -29,13 +31,17 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
-private const val TAG         = "PushToTalk"
-private const val SAMPLE_RATE = 8000
-private const val ENCODING    = AudioFormat.ENCODING_PCM_16BIT
-private const val TABLE       = "ptt_messages"
+private const val TAG          = "PushToTalk"
+private const val SAMPLE_RATE  = 8000
+private const val ENCODING     = AudioFormat.ENCODING_PCM_16BIT
+private const val TABLE        = "ptt_messages"
 
 // How often the watchdog checks channel health (ms)
-private const val WATCHDOG_INTERVAL_MS = 10_000L
+private const val WATCHDOG_INTERVAL_MS  = 8_000L
+// Keep-alive ping interval — prevents idle disconnect on long shifts
+private const val KEEPALIVE_INTERVAL_MS = 25_000L
+// Only play missed messages received within this window (avoid playing ancient ones)
+private const val MISSED_WINDOW_MS      = 5 * 60 * 1000L  // 5 minutes
 
 class PushToTalkManager(
     private val context: Context,
@@ -44,13 +50,15 @@ class PushToTalkManager(
     private val client get() = BadgerApp.supabase
 
     private var recorder: AudioRecord? = null
-    private var recordJob: Job?  = null
-    private var listenJob: Job?  = null
-    private var watchdogJob: Job? = null
+    private var recordJob: Job?    = null
+    private var listenJob: Job?    = null
+    private var watchdogJob: Job?  = null
+    private var keepAliveJob: Job? = null
     private var listenChannel: RealtimeChannel? = null
 
-    @Volatile private var recording = false
+    @Volatile private var recording  = false
     @Volatile private var destroyed  = false
+    @Volatile private var lastSeenId = 0L   // highest message id we've seen/played
 
     var onIncoming: (() -> Unit)? = null
     var onDone:     (() -> Unit)? = null
@@ -61,6 +69,7 @@ class PushToTalkManager(
         destroyed = false
         doSubscribe()
         startWatchdog()
+        startKeepAlive()
     }
 
     fun startRecording() {
@@ -102,8 +111,10 @@ class PushToTalkManager(
                     put("sender", "device")
                 })
                 Log.d(TAG, "PTT sent OK")
+                RemoteLogger.i("PTT", "PTT sent OK — ${pcm.size} bytes")
             } catch (e: Exception) {
                 Log.e(TAG, "PTT send error", e)
+                RemoteLogger.e("PTT", "PTT send FAILED: ${e.message}")
             }
         }
     }
@@ -120,11 +131,142 @@ class PushToTalkManager(
         recordJob?.cancel()
         listenJob?.cancel()
         watchdogJob?.cancel()
+        keepAliveJob?.cancel()
         scope.launch { try { listenChannel?.unsubscribe() } catch (_: Exception) {} }
         listenChannel = null
     }
 
-    // ── Internal ──────────────────────────────────────────────────────────────
+    // ── Keep-alive ────────────────────────────────────────────────────────────
+    // Supabase realtime can silently drop idle connections after ~60s of no events.
+    // We ping the REST API every 25s so the shift never goes silent.
+
+    private fun startKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = scope.launch {
+            while (isActive && !destroyed) {
+                delay(KEEPALIVE_INTERVAL_MS)
+                try {
+                    // Lightweight query — just checks connectivity + keeps the connection warm
+                    client.postgrest[TABLE].select { limit(1) }
+                    Log.d(TAG, "PTT keep-alive ping OK")
+                } catch (e: Exception) {
+                    Log.w(TAG, "PTT keep-alive ping failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    // ── Missed message recovery ───────────────────────────────────────────────
+    // On reconnect, fetch any messages with id > lastSeenId that arrived while
+    // we were disconnected. Only play ones from the last 5 minutes to avoid
+    // playing hour-old messages after a long disconnect.
+
+    private fun playMissedMessages() {
+        if (lastSeenId == 0L) {
+            // First connect — just record current max id as baseline, don't play anything
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val rows = client.postgrest[TABLE].select {
+                        order("id", Order.DESCENDING)
+                        limit(1)
+                    }
+                    val json = rows.data
+                    // Parse the max id from JSON array string like [{"id":42,...}]
+                    val idMatch = Regex(""""id"\s*:\s*(\d+)""").find(json)
+                    lastSeenId = idMatch?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                    Log.d(TAG, "PTT baseline id set to $lastSeenId")
+                } catch (e: Exception) {
+                    Log.w(TAG, "PTT baseline query failed: ${e.message}")
+                }
+            }
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val rows = client.postgrest[TABLE].select {
+                    order("id", Order.ASCENDING)
+                }
+                val json = rows.data
+                Log.d(TAG, "PTT missed check, raw: ${json.take(200)}")
+
+                // Parse rows manually from JSON array
+                val idPattern    = Regex(""""id"\s*:\s*(\d+)""")
+                val b64Pattern   = Regex(""""audio_b64"\s*:\s*"([^"]+)"""")
+                val timePattern  = Regex(""""created_at"\s*:\s*"([^"]+)"""")
+
+                // Split into per-row objects crudely
+                val rowObjects = json.split("""{"id"""").drop(1).map { """{"id$it""" }
+                val now = System.currentTimeMillis()
+
+                var playedCount = 0
+                for (row in rowObjects) {
+                    val rowId  = idPattern.find(row)?.groupValues?.get(1)?.toLongOrNull() ?: continue
+                    if (rowId <= lastSeenId) continue
+
+                    // Check created_at is within window
+                    val createdStr = timePattern.find(row)?.groupValues?.get(1)
+                    val createdMs  = runCatching {
+                        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                            .also { it.timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                            .parse(createdStr?.take(19) ?: "")?.time ?: 0L
+                    }.getOrDefault(0L)
+
+                    if (createdMs > 0 && (now - createdMs) > MISSED_WINDOW_MS) {
+                        Log.d(TAG, "PTT skipping old missed message id=$rowId")
+                        lastSeenId = maxOf(lastSeenId, rowId)
+                        continue
+                    }
+
+                    val b64 = b64Pattern.find(row)?.groupValues?.get(1)
+                    if (b64.isNullOrEmpty()) continue
+
+                    Log.d(TAG, "PTT playing missed message id=$rowId")
+                    scope.launch(Dispatchers.Main) { onIncoming?.invoke() }
+                    playPcm(Base64.decode(b64, Base64.DEFAULT))
+                    scope.launch(Dispatchers.Main) { onDone?.invoke() }
+
+                    lastSeenId = maxOf(lastSeenId, rowId)
+                    playedCount++
+
+                    // Small gap between back-to-back missed messages
+                    if (playedCount > 0) delay(500)
+                }
+
+                if (playedCount > 0) {
+                    Log.d(TAG, "PTT played $playedCount missed message(s)")
+                    // Clean up played messages
+                    try {
+                        client.postgrest[TABLE].delete { filter { lte("id", lastSeenId.toString()) } }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "PTT missed cleanup error: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "PTT missed message check failed: ${e.message}")
+            }
+        }
+    }
+
+    // ── Watchdog ─────────────────────────────────────────────────────────────
+
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            while (isActive && !destroyed) {
+                delay(WATCHDOG_INTERVAL_MS)
+                val status = listenChannel?.status?.value
+                if (status != RealtimeChannel.Status.SUBSCRIBED) {
+                    Log.w(TAG, "PTT watchdog: channel status=$status — reconnecting")
+                    doSubscribe()
+                } else {
+                    Log.d(TAG, "PTT watchdog: OK (lastSeenId=$lastSeenId)")
+                }
+            }
+        }
+    }
+
+    // ── Subscribe ─────────────────────────────────────────────────────────────
 
     private fun doSubscribe() {
         if (destroyed) return
@@ -142,17 +284,17 @@ class PushToTalkManager(
         }.onEach { action ->
             if (action !is PostgresAction.Insert) return@onEach
             try {
-                val b64 = action.record["audio_b64"]?.jsonPrimitive?.content
+                val rowId = action.record["id"]?.jsonPrimitive?.longOrNull
+                val b64   = action.record["audio_b64"]?.jsonPrimitive?.content
                 if (b64.isNullOrEmpty()) { Log.w(TAG, "PTT: row with no audio_b64"); return@onEach }
 
-                Log.d(TAG, "PTT incoming: ${b64.length} b64 chars")
+                if (rowId != null) lastSeenId = maxOf(lastSeenId, rowId)
+                Log.d(TAG, "PTT incoming: ${b64.length} b64 chars (id=$rowId)")
+
                 scope.launch(Dispatchers.Main) { onIncoming?.invoke() }
-
                 playPcm(Base64.decode(b64, Base64.DEFAULT))
-
                 scope.launch(Dispatchers.Main) { onDone?.invoke() }
 
-                val rowId = action.record["id"]?.jsonPrimitive?.longOrNull
                 if (rowId != null) {
                     scope.launch(Dispatchers.IO) {
                         try { client.postgrest[TABLE].delete { filter { lte("id", rowId.toString()) } }
@@ -168,33 +310,15 @@ class PushToTalkManager(
         scope.launch {
             try {
                 ch.subscribe()
-                Log.d(TAG, "PTT channel subscribed")
+                Log.d(TAG, "PTT channel subscribed — checking for missed messages")
+                playMissedMessages()
             } catch (e: Exception) {
                 Log.e(TAG, "PTT subscribe error: ${e.message}")
-                // watchdog will retry
             }
         }
     }
 
-    /**
-     * Watchdog: checks every 10s. If the channel is not SUBSCRIBED it tears down
-     * and rebuilds the whole channel from scratch — no hanging partial states.
-     */
-    private fun startWatchdog() {
-        watchdogJob?.cancel()
-        watchdogJob = scope.launch {
-            while (isActive && !destroyed) {
-                delay(WATCHDOG_INTERVAL_MS)
-                val status = listenChannel?.status?.value
-                if (status != RealtimeChannel.Status.SUBSCRIBED) {
-                    Log.w(TAG, "PTT watchdog: channel status=$status — reconnecting")
-                    doSubscribe()
-                } else {
-                    Log.d(TAG, "PTT watchdog: OK")
-                }
-            }
-        }
-    }
+    // ── Playback ──────────────────────────────────────────────────────────────
 
     private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.IO) {
         if (pcm.isEmpty()) { Log.w(TAG, "PTT: empty PCM"); return@withContext }
@@ -210,7 +334,7 @@ class PushToTalkManager(
                     com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_MUTE     -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
                     com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_PRIORITY -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
                     com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_LOWER    -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-                    else -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT  // audio_focus default
+                    else -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
                 }
                 android.media.AudioFocusRequest.Builder(focusGain)
                     .setAudioAttributes(
@@ -221,13 +345,13 @@ class PushToTalkManager(
                     )
                     .setAcceptsDelayedFocusGain(false)
                     .setWillPauseWhenDucked(audioMode == com.badger.trucks.service.NotificationPrefsStore.PTT_AUDIO_MUTE)
+                    .setOnAudioFocusChangeListener {}
                     .build()
             }
         }
         focusRequest?.let { audioManager.requestAudioFocus(it) }
 
         try {
-            // Use STREAM_MUSIC at full media volume — much louder than MODE_IN_COMMUNICATION
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, ENCODING)
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -251,12 +375,13 @@ class PushToTalkManager(
 
             val durationMs = (pcm.size.toLong() * 1000L) / (SAMPLE_RATE * 2)
             Log.d(TAG, "PTT playing ~${durationMs}ms")
-            delay(durationMs + 400)
+            delay(durationMs + 300)
             track.stop(); track.release()
         } catch (e: Exception) {
             Log.e(TAG, "PTT playback error", e)
         } finally {
             focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            Log.d(TAG, "PTT audio focus released")
         }
     }
 }

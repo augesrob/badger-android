@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import com.badger.trucks.service.BadgerService
 import com.badger.trucks.service.NotificationPrefsStore
 
 private val Amber = Color(0xFFF59E0B)
@@ -111,13 +113,24 @@ fun NotificationSettingsScreen() {
     var saved by remember { mutableStateOf(false) }
     var pttAudioMode by remember { mutableStateOf(NotificationPrefsStore.getPttAudioMode(context)) }
 
+    fun notifyService() {
+        if (BadgerService.isRunning) {
+            val intent = Intent(context, BadgerService::class.java).apply {
+                action = BadgerService.ACTION_APPLY_SETTINGS
+            }
+            context.startService(intent)
+        }
+    }
+
     fun toggle(key: String) {
         val updated = prefs.toMutableMap()
         updated[key] = !(updated[key] ?: true)
         prefs = updated
         NotificationPrefsStore.setAll(context, updated)
         saved = true
+        notifyService()
     }
+
 
     fun allEventsOn()  { EVENT_ITEMS.forEach { toggle(it.key) } }
 
@@ -218,7 +231,7 @@ fun NotificationSettingsScreen() {
 
         Divider(color = DarkBorder, thickness = 1.dp)
 
-        // PTT audio focus section
+        // PTT Audio Focus section
         SectionLabel("PTT Incoming Audio")
         Text(
             "Controls how other apps behave when a PTT message plays.",
@@ -228,18 +241,16 @@ fun NotificationSettingsScreen() {
         Spacer(Modifier.height(4.dp))
 
         val pttOptions = listOf(
-            Triple(NotificationPrefsStore.PTT_AUDIO_FOCUS,    "Audio Focus",         "Politely pause other apps while PTT plays"),
-            Triple(NotificationPrefsStore.PTT_AUDIO_MUTE,     "Mute Other Apps",     "Silence other apps completely during PTT"),
-            Triple(NotificationPrefsStore.PTT_AUDIO_PRIORITY, "Priority",            "Exclusive focus — strongest interrupt"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_FOCUS,    "Audio Focus",            "Politely pause other apps while PTT plays"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_MUTE,     "Mute Other Apps",        "Silence other apps completely during PTT"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_PRIORITY, "Priority",               "Exclusive focus — strongest interrupt"),
             Triple(NotificationPrefsStore.PTT_AUDIO_LOWER,    "Lower Volume of Others", "Duck other audio down while PTT plays"),
-            Triple(NotificationPrefsStore.PTT_AUDIO_OFF,      "Off",                 "No audio management — play over everything"),
+            Triple(NotificationPrefsStore.PTT_AUDIO_OFF,      "Off",                    "No audio management — play over everything"),
         )
         pttOptions.forEach { (value, label, desc) ->
             val selected = pttAudioMode == value
             Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (selected) DarkCard else Color(0xFF111111)
-                ),
+                colors = CardDefaults.cardColors(containerColor = if (selected) DarkCard else Color(0xFF111111)),
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -267,12 +278,8 @@ fun NotificationSettingsScreen() {
                         )
                     )
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            label,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (selected) Color.White else Color.Gray
-                        )
+                        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            color = if (selected) Color.White else Color.Gray)
                         Text(desc, fontSize = 11.sp, color = Color.Gray)
                     }
                 }

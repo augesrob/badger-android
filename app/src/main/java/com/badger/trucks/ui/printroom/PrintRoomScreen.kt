@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.badger.trucks.data.*
 import com.badger.trucks.ui.theme.*
+import com.badger.trucks.util.RemoteLogger
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.launch
@@ -55,7 +56,7 @@ fun PrintRoomScreen() {
                 entries = BadgerRepo.getPrintroomEntries()
                 staging = BadgerRepo.getStagingDoors()
                 routes = BadgerRepo.getRoutes()
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
             loading = false
         }
     }
@@ -68,7 +69,7 @@ fun PrintRoomScreen() {
                 table = "printroom_entries"
             }.collect { loadData() }
             channel.subscribe()
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
     }
 
     // Add truck dialog
@@ -116,8 +117,9 @@ fun PrintRoomScreen() {
                                 }
                                 BadgerRepo.addToMovement(entry.truckNumber, preshiftLoc)
                             }
+                            RemoteLogger.i("PrintRoom", "Truck ${entry.truckNumber} added to Door ${door.doorName} batch=${entry.batchNumber} route=${entry.routeInfo}")
                             loadData()
-                        } catch (e: Exception) { e.printStackTrace() }
+                        } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                     }
                     addDialogDoor = null
                 }
@@ -150,8 +152,9 @@ fun PrintRoomScreen() {
                             }
                             BadgerRepo.addToMovement(entry.truckNumber, preshiftLoc)
                         }
+                        RemoteLogger.w("PrintRoom", "Truck ${entry.truckNumber} force-added to Door ${door.doorName} (duplicate override) route=${entry.routeInfo}")
                         loadData()
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                 }
                 pendingAdd = null
             },
@@ -169,8 +172,9 @@ fun PrintRoomScreen() {
                 scope.launch {
                     try {
                         BadgerRepo.upsertPrintroomEntry(updated)
+                        RemoteLogger.i("PrintRoom", "Truck ${updated.truckNumber} edited — route=${updated.routeInfo} pods=${updated.pods} pallets=${updated.palletsTrays}")
                         loadData()
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                 }
                 editDialogEntry = null
             },
@@ -178,8 +182,9 @@ fun PrintRoomScreen() {
                 scope.launch {
                     try {
                         BadgerRepo.deletePrintroomEntry(entry.id)
+                        RemoteLogger.i("PrintRoom", "Truck ${entry.truckNumber} deleted from Door (entry id=${entry.id})")
                         loadData()
-                    } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace(); android.util.Log.e("PrintRoomScreen", "Error: ${e.message}", e) }
                 }
                 editDialogEntry = null
             }

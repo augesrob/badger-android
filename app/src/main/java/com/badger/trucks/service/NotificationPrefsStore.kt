@@ -34,11 +34,11 @@ object NotificationPrefsStore {
     // PTT audio focus mode
     // Values: "audio_focus" | "mute" | "priority" | "lower" | "off"
     const val KEY_PTT_AUDIO_MODE = "ptt_audio_mode"
-    const val PTT_AUDIO_FOCUS   = "audio_focus"   // Request audio focus (pause other apps)
-    const val PTT_AUDIO_MUTE    = "mute"           // Mute other apps entirely
-    const val PTT_AUDIO_PRIORITY = "priority"      // Use AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
-    const val PTT_AUDIO_LOWER   = "lower"          // Duck (lower) other apps
-    const val PTT_AUDIO_OFF     = "off"            // No audio focus management
+    const val PTT_AUDIO_FOCUS    = "audio_focus"   // Request audio focus (pause other apps)
+    const val PTT_AUDIO_MUTE     = "mute"           // Mute other apps entirely
+    const val PTT_AUDIO_PRIORITY = "priority"       // Use AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+    const val PTT_AUDIO_LOWER    = "lower"          // Duck (lower) other apps
+    const val PTT_AUDIO_OFF      = "off"            // No audio focus management
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -54,6 +54,12 @@ object NotificationPrefsStore {
 
     fun setPttAudioMode(context: Context, mode: String) =
         prefs(context).edit().putString(KEY_PTT_AUDIO_MODE, mode).apply()
+
+    fun getString(context: Context, key: String, default: String = ""): String =
+        prefs(context).getString(key, default) ?: default
+
+    fun setString(context: Context, key: String, value: String) =
+        prefs(context).edit().putString(key, value).apply()
 
     fun getAll(context: Context): Map<String, Boolean> {
         val p = prefs(context)

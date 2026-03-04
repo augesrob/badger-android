@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.badger.trucks.data.*
 import com.badger.trucks.ui.theme.*
+import com.badger.trucks.util.RemoteLogger
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.launch
@@ -55,6 +56,13 @@ fun PreShiftScreen() {
     }
 
     fun doSave(doorId: Int, field: String, value: String) {
+        val door = doors.find { it.id == doorId }
+        val slot = if (field == "in_front") "front" else "back"
+        if (value.isBlank()) {
+            RemoteLogger.i("PreShift", "Truck cleared from door ${door?.doorLabel} $slot")
+        } else {
+            RemoteLogger.i("PreShift", "Truck $value staged at door ${door?.doorLabel} $slot")
+        }
         scope.launch {
             try { BadgerRepo.updateStagingField(doorId, field, value.ifBlank { null }) }
             catch (e: Exception) { e.printStackTrace() }
@@ -106,6 +114,7 @@ fun PreShiftScreen() {
         DuplicateStagingDialog(
             message = pending.conflictMsg,
             onUseAnyway = {
+                RemoteLogger.w("PreShift", "Duplicate truck ${pending.value} force-staged (override) — ${pending.conflictMsg}")
                 doSave(pending.doorId, pending.field, pending.value)
                 pendingStaging = null
             },
