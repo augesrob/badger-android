@@ -12,11 +12,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.badger.trucks"
+        applicationId = "com.badger.access"
         minSdk = 26
         targetSdk = 34
-        versionCode = 94
-        versionName = "94.0"
+        versionCode = 1
+        versionName = "1.0"
 
         // Secrets injected from local.properties (dev) or GitHub Secrets (CI)
         val localProps = Properties().also { props ->

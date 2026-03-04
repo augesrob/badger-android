@@ -21,7 +21,9 @@ import kotlinx.serialization.json.longOrNull
 import java.io.File
 
 private const val GITHUB_RELEASES_URL =
-    "https://api.github.com/repos/augesrob/badger-android/releases/latest"
+    "https://api.github.com/repos/augesrob/badger-android/releases?per_page=10"
+
+private const val RELEASE_TAG_PREFIX = "access-v"
 
 @Serializable
 data class GithubRelease(
@@ -64,7 +66,12 @@ object AppUpdater {
                 header("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
             }.bodyAsText()
 
-            val release = json.decodeFromString<GithubRelease>(body)
+            val releases = json.decodeFromString<List<GithubRelease>>(body)
+            // Only consider releases tagged access-v* so main branch releases are ignored
+            val release = releases
+                .filter { it.tagName.startsWith(RELEASE_TAG_PREFIX) }
+                .maxByOrNull { Regex("\\d+").find(it.tagName)?.value?.toIntOrNull() ?: 0 }
+                ?: return@withContext null
             val latestCode = Regex("\\d+").find(release.tagName)?.value?.toIntOrNull()
                 ?: return@withContext null
 
