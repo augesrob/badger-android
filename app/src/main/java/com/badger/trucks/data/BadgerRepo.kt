@@ -6,6 +6,8 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -233,6 +235,77 @@ object BadgerRepo {
         client.postgrest["routes"]
             .select { order("route_name", Order.ASCENDING) }
             .decodeList()
+
+    // ===== AUTH =====
+    suspend fun signIn(email: String, password: String) {
+        client.auth.signInWith(Email) {
+            this.email = email
+            this.password = password
+        }
+    }
+
+    suspend fun signOut() {
+        client.auth.signOut()
+    }
+
+    fun currentUserId(): String? = client.auth.currentUserOrNull()?.id
+
+    suspend fun getCurrentProfile(): UserProfile? {
+        val uid = currentUserId() ?: return null
+        return try {
+            client.postgrest["profiles"]
+                .select { filter { eq("id", uid) } }
+                .decodeSingleOrNull()
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "getCurrentProfile failed: ${e.message}")
+            null
+        }
+    }
+
+    // ===== CHAT =====
+    suspend fun getChatRooms(): List<ChatRoom> =
+        client.postgrest["chat_rooms"]
+            .select {
+                order("sort_order", Order.ASCENDING)
+                order("id", Order.ASCENDING)
+            }
+            .decodeList()
+
+    suspend fun getChatMessages(roomId: Int, limit: Int = 100): List<ChatMessage> =
+        client.postgrest["messages"]
+            .select(Columns.raw("*, profiles(username, display_name, avatar_color, avatar_url, role)")) {
+                filter { eq("room_id", roomId) }
+                order("created_at", Order.ASCENDING)
+                limit(limit.toLong())
+            }
+            .decodeList()
+
+    suspend fun sendChatMessage(roomId: Int, content: String) {
+        val uid = currentUserId() ?: return
+        client.postgrest["messages"].insert(
+            buildJsonObject {
+                put("room_id", roomId)
+                put("sender_id", uid)
+                put("content", content)
+            }
+        )
+    }
+
+    suspend fun getRolePermissions(role: String): Map<String, Boolean> {
+        return try {
+            val result = client.postgrest["role_permissions"]
+                .select { filter { eq("role_name", role) } }
+                .decodeList<kotlinx.serialization.json.JsonObject>()
+            val row = result.firstOrNull() ?: return emptyMap()
+            // pages and features are JSON arrays — parse them
+            val pages = (row["pages"] as? kotlinx.serialization.json.JsonArray)
+                ?.map { (it as kotlinx.serialization.json.JsonPrimitive).content } ?: emptyList()
+            pages.associateWith { true }
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "getRolePermissions failed: ${e.message}")
+            emptyMap()
+        }
+    }
 
     // ===== REALTIME =====
     fun realtimeChannel(name: String) = client.channel(name)

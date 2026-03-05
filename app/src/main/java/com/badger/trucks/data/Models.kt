@@ -149,7 +149,53 @@ data class Route(
     @SerialName("is_active") val isActive: Boolean = true
 )
 
-// Dock lock door names that support the dock lock feature
+// ── Auth / Profile ─────────────────────────────────────────────────────────
+@Serializable
+data class UserProfile(
+    val id: String = "",
+    val username: String = "",
+    @SerialName("display_name") val displayName: String? = null,
+    val role: String = "driver",
+    @SerialName("avatar_color") val avatarColor: String = "#F59E0B",
+    @SerialName("avatar_url") val avatarUrl: String? = null
+) {
+    val displayLabel get() = displayName ?: username
+    val initials get() = displayLabel.take(2).uppercase()
+}
+
+// ── Chat ────────────────────────────────────────────────────────────────────
+@Serializable
+data class ChatRoom(
+    val id: Int = 0,
+    val name: String,
+    val type: String = "text",
+    @SerialName("role_target") val roleTarget: String? = null,
+    @SerialName("allowed_roles") val allowedRoles: List<String>? = null,
+    @SerialName("read_only_roles") val readOnlyRoles: List<String>? = null,
+    val description: String? = null,
+    @SerialName("sort_order") val sortOrder: Int? = null
+)
+
+@Serializable
+data class ChatMessageProfile(
+    val username: String = "",
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("avatar_color") val avatarColor: String = "#6b7280",
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+    val role: String = ""
+)
+
+@Serializable
+data class ChatMessage(
+    val id: Int = 0,
+    @SerialName("room_id") val roomId: Int,
+    @SerialName("sender_id") val senderId: String,
+    val content: String,
+    @SerialName("created_at") val createdAt: String = "",
+    val profiles: ChatMessageProfile? = null
+)
+
+// ── Dock lock door names that support the dock lock feature
 val DOCK_LOCK_DOORS = setOf("13A", "13B", "14A", "14B", "15A", "15B")
 
 // Fallback door status constants — used only when door_status_values table is empty

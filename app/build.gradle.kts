@@ -74,6 +74,8 @@ android {
 dependencies {
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
 
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
