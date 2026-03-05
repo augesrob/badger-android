@@ -24,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.badger.trucks.service.BadgerService
+import com.badger.trucks.util.RemoteLogger
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.ui.printroom.PrintRoomScreen
 import com.badger.trucks.ui.preshift.PreShiftScreen
@@ -40,20 +41,29 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* permissions handled */ }
+    ) { results ->
+        // After permissions resolved, (re)start service so it can use mic
+        val micGranted = results[Manifest.permission.RECORD_AUDIO] ?: hasMicPermission()
+        RemoteLogger.i("MainActivity", "Permissions result: RECORD_AUDIO=$micGranted")
+        startBadgerService()
+        // If service was already running but had no mic, restart it so PTT/hotword initialize properly
+        if (micGranted && BadgerService.isRunning) {
+            stopService(Intent(this, BadgerService::class.java))
+            ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+        }
+    }
 
     private var updateCheckJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        requestAppPermissions()
+        // Start service immediately (TTS works without mic permission).
+        // If mic is already granted, full PTT+hotword will work right away.
+        // If not, the permission launcher callback will restart the service once granted.
         startBadgerService()
-        setContent {
-            BadgerTheme {
-                BadgerMainApp()
-            }
-        }
+        requestAppPermissions()
+        setContent { BadgerTheme { BadgerMainApp() } }
     }
 
     override fun onResume() {
@@ -73,25 +83,33 @@ class MainActivity : ComponentActivity() {
         updateCheckJob?.cancel()
     }
 
+    fun hasMicPermission() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    fun requestMicPermission() {
+        requestPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+    }
+
     private fun requestAppPermissions() {
         val needed = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.RECORD_AUDIO)
-        }
+        if (!hasMicPermission()) needed.add(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        if (needed.isNotEmpty()) {
-            requestPermissionLauncher.launch(needed.toTypedArray())
-        }
+        if (needed.isNotEmpty()) requestPermissionLauncher.launch(needed.toTypedArray())
+    }
+
+    fun restartService() {
+        stopService(Intent(this, BadgerService::class.java))
+        ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+        RemoteLogger.i("MainActivity", "Service manually restarted")
     }
 
     private fun startBadgerService() {
         if (!BadgerService.isRunning) {
             ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+            RemoteLogger.i("MainActivity", "BadgerService started (mic=${hasMicPermission()})")
         }
     }
 

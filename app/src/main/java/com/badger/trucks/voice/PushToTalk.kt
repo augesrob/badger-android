@@ -8,6 +8,8 @@ import com.badger.trucks.util.RemoteLogger
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.util.Base64
 import android.util.Log
 import com.badger.trucks.BadgerApp
@@ -15,7 +17,6 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
-import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,13 @@ class PushToTalkManager(
     }
 
     fun startRecording() {
+        // Guard: mic permission must be granted before touching AudioRecord
+        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "startRecording: RECORD_AUDIO not granted — aborting")
+            RemoteLogger.e("PTT", "startRecording aborted — no RECORD_AUDIO permission")
+            return
+        }
         stopRecording()
         val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, ENCODING)
         if (minBuf <= 0) { Log.e(TAG, "getMinBufferSize failed: $minBuf"); return }

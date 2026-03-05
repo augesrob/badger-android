@@ -561,8 +561,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     } catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues refresh: ${'$'}{e.message}") }
                 }.launchIn(scope)
 
-                RemoteLogger.i("BadgerService", "Calling channel.subscribe()...")
-                channel.subscribe(blockUntilSubscribed = true)
+                channel.subscribe()
                 val status = channel.status.value
                 Log.d("BadgerService", "Realtime subscribed — status=$status")
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK — channel status=$status")
@@ -575,7 +574,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         Log.w("BadgerService", "Realtime channel dropped (status=$currentStatus), reconnecting...")
                         RemoteLogger.w("BadgerService", "Realtime dropped, reconnecting...")
                         try { channel.unsubscribe() } catch (_: Exception) {}
-                        startRealtimeSync()
+                        delay(3_000)
+                        if (scope.isActive) startRealtimeSync()
                         return@launch
                     }
                     // Poll and compare — triggers TTS/notifications even when realtime events are missed
@@ -602,8 +602,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             } catch (e: Exception) {
                 Log.e("BadgerService", "Realtime setup error: ${e.message}")
                 RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message}")
-                delay(10_000)
-                startRealtimeSync()
+                if (!scope.isActive) return@launch  // service destroyed — don't retry
+                delay(15_000)
+                if (scope.isActive) startRealtimeSync()
             }
         }
     }
