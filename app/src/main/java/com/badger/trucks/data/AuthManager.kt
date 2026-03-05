@@ -114,15 +114,18 @@ object AuthManager {
                 val channel = BadgerApp.supabase.channel("profile-watch-$userId")
 
                 val flow = channel.postgresChangeFlow<PostgresAction.Update>("public") {
-                    table  = "profiles"
-                    filter = "id=eq.$userId"
+                    table = "profiles"
                 }
 
                 channel.subscribe()
                 RemoteLogger.i("AuthManager", "Profile realtime watch started for $userId")
 
-                flow.collect { _ ->
-                    handleProfileUpdate()
+                flow.collect { action ->
+                    // Filter client-side — only react to our own profile row
+                    val rowId = action.record["id"]?.toString()?.trim('"')
+                    if (rowId == userId) {
+                        handleProfileUpdate()
+                    }
                 }
             } catch (e: Exception) {
                 RemoteLogger.w("AuthManager", "Profile watch error: ${e.message}")
