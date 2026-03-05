@@ -28,9 +28,9 @@ import com.badger.trucks.data.UserProfile
 import com.badger.trucks.ui.chat.ChatScreen
 import com.badger.trucks.ui.login.LoginScreen
 import com.badger.trucks.ui.movement.MovementScreen
-import com.badger.trucks.ui.printroom.PrintRoomScreen
 import com.badger.trucks.ui.profile.ProfileScreen
 import com.badger.trucks.ui.settings.NotificationSettingsScreen
+import com.badger.trucks.ui.shiftsetup.ShiftSetupScreen
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.updater.AppUpdater
 import kotlinx.coroutines.Job
@@ -93,16 +93,16 @@ class MainActivity : FragmentActivity() {
 // ── Screens available in Badger Access ────────────────────────────────────────
 
 sealed class AccessScreen(val route: String, val label: String, val icon: ImageVector, val requiredPage: String) {
-    data object Live     : AccessScreen("live",      "Live",      Icons.Default.LocalShipping, "movement")
-    data object PrintRoom: AccessScreen("printroom", "Print Room",Icons.Default.Print,         "printroom")
-    data object Chat     : AccessScreen("chat",      "Chat",      Icons.Default.Chat,          "chat")
-    data object Settings : AccessScreen("settings",  "Settings",  Icons.Default.Settings,      "notifications")
-    data object Profile  : AccessScreen("profile",   "Profile",   Icons.Default.Person,        "profile")
+    data object Live      : AccessScreen("live",       "Live",      Icons.Default.LocalShipping, "movement")
+    data object ShiftSetup: AccessScreen("shiftsetup", "Shift",     Icons.Default.CalendarToday, "printroom")
+    data object Chat      : AccessScreen("chat",       "Chat",      Icons.Default.Chat,          "chat")
+    data object Settings  : AccessScreen("settings",   "Settings",  Icons.Default.Settings,      "notifications")
+    data object Profile   : AccessScreen("profile",    "Profile",   Icons.Default.Person,        "profile")
 }
 
 val ALL_SCREENS = listOf(
     AccessScreen.Live,
-    AccessScreen.PrintRoom,
+    AccessScreen.ShiftSetup,
     AccessScreen.Chat,
     AccessScreen.Settings,
     AccessScreen.Profile,
@@ -246,11 +246,11 @@ fun BadgerAccessMain(profile: UserProfile) {
             startDestination = startRoute,
             modifier = Modifier.padding(padding)
         ) {
-            composable(AccessScreen.Live.route)      { MovementScreen() }
-            composable(AccessScreen.PrintRoom.route) { PrintRoomScreen() }
-            composable(AccessScreen.Chat.route)      { ChatScreen(profile = profile) }
-            composable(AccessScreen.Settings.route)  { NotificationSettingsScreen() }
-            composable(AccessScreen.Profile.route)   { ProfileScreen(profile = profile) }
+            composable(AccessScreen.Live.route)       { MovementScreen() }
+            composable(AccessScreen.ShiftSetup.route) { ShiftSetupScreen() }
+            composable(AccessScreen.Chat.route)       { ChatScreen(profile = profile) }
+            composable(AccessScreen.Settings.route)   { NotificationSettingsScreen() }
+            composable(AccessScreen.Profile.route)    { ProfileScreen(profile = profile) }
         }
     }
 }

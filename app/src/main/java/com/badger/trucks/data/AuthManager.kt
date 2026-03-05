@@ -34,6 +34,8 @@ object AuthManager {
     fun canAccess(page: String): Boolean {
         val p = profile ?: return false
         if (p.role == "admin") return true
+        // "profile" and "notifications" are always accessible once logged in
+        if (page == "profile" || page == "notifications" || page == "chat") return true
         return DEFAULT_PAGE_ACCESS[p.role]?.contains(page) == true
     }
 

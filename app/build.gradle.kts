@@ -76,6 +76,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
+    // Image loading (avatar)
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
@@ -96,6 +98,7 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:postgrest-kt:$supabaseVersion")
     implementation("io.github.jan-tennert.supabase:realtime-kt:$supabaseVersion")
     implementation("io.github.jan-tennert.supabase:auth-kt:$supabaseVersion")
+    implementation("io.github.jan-tennert.supabase:storage-kt:$supabaseVersion")
 
     val ktorVersion = "3.1.1"
     implementation("io.ktor:ktor-client-core:$ktorVersion")
