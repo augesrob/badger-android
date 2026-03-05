@@ -36,7 +36,7 @@ import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.launch
 
 @Composable
-fun PrintRoomScreen() {
+fun PrintRoomScreen(onBack: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     var doors by remember { mutableStateOf<List<LoadingDoor>>(emptyList()) }
     var entries by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }

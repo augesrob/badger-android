@@ -32,7 +32,7 @@ import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.launch
 
 @Composable
-fun PreShiftScreen() {
+fun PreShiftScreen(onBack: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     var doors by remember { mutableStateOf<List<StagingDoor>>(emptyList()) }
     var activeTrucks by remember { mutableStateOf<Set<String>>(emptySet()) }

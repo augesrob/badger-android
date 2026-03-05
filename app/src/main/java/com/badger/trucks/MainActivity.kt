@@ -5,31 +5,33 @@ import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.UserProfile
 import com.badger.trucks.ui.chat.ChatScreen
 import com.badger.trucks.ui.login.LoginScreen
 import com.badger.trucks.ui.movement.MovementScreen
-import com.badger.trucks.ui.profile.ProfileScreen
-import com.badger.trucks.ui.settings.NotificationSettingsScreen
+import com.badger.trucks.ui.settings.SettingsScreen
 import com.badger.trucks.ui.shiftsetup.ShiftSetupScreen
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.updater.AppUpdater
@@ -45,11 +47,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            BadgerTheme {
-                BadgerAccessApp()
-            }
-        }
+        setContent { BadgerTheme { BadgerAccessApp() } }
     }
 
     override fun onResume() {
@@ -57,10 +55,7 @@ class MainActivity : FragmentActivity() {
         checkForUpdate()
         updateCheckJob?.cancel()
         updateCheckJob = lifecycleScope.launch {
-            while (isActive) {
-                delay(30 * 60 * 1000L)
-                checkForUpdate()
-            }
+            while (isActive) { delay(30 * 60 * 1000L); checkForUpdate() }
         }
     }
 
@@ -70,187 +65,227 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun checkForUpdate() {
-        val currentVersion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val ver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0)).versionCode
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).versionCode
-        }
+        else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0).versionCode
         lifecycleScope.launch {
-            val update = AppUpdater.checkForUpdate(currentVersion)
-            if (update != null) {
-                pendingUpdate = update
-                AppUpdater.downloadAndInstall(this@MainActivity, update) {}
-            }
+            val update = AppUpdater.checkForUpdate(ver)
+            if (update != null) pendingUpdate = update
         }
     }
 
     companion object {
-        var pendingUpdate: com.badger.trucks.updater.UpdateInfo? by androidx.compose.runtime.mutableStateOf(null)
+        var pendingUpdate: com.badger.trucks.updater.UpdateInfo? by mutableStateOf(null)
     }
 }
 
-// ── Screens available in Badger Access ────────────────────────────────────────
+// ── App root ──────────────────────────────────────────────────────────────────
 
-sealed class AccessScreen(val route: String, val label: String, val icon: ImageVector, val requiredPage: String) {
-    data object Live      : AccessScreen("live",       "Live",      Icons.Default.LocalShipping, "movement")
-    data object ShiftSetup: AccessScreen("shiftsetup", "Shift",     Icons.Default.CalendarToday, "printroom")
-    data object Chat      : AccessScreen("chat",       "Chat",      Icons.Default.Chat,          "chat")
-    data object Settings  : AccessScreen("settings",   "Settings",  Icons.Default.Settings,      "notifications")
-    data object Profile   : AccessScreen("profile",    "Profile",   Icons.Default.Person,        "profile")
-}
-
-val ALL_SCREENS = listOf(
-    AccessScreen.Live,
-    AccessScreen.ShiftSetup,
-    AccessScreen.Chat,
-    AccessScreen.Settings,
-    AccessScreen.Profile,
-)
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BadgerAccessApp() {
     val authState by AuthManager.state.collectAsState()
-
-    // Splash / loading state
-    if (authState is AuthManager.AuthState.Loading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("🦡", style = MaterialTheme.typography.displayMedium)
-                CircularProgressIndicator(color = Amber500)
-            }
-        }
-        return
+    when (authState) {
+        is AuthManager.AuthState.Loading   -> SplashScreen()
+        is AuthManager.AuthState.LoggedOut -> LoginScreen()
+        is AuthManager.AuthState.LoggedIn  -> BadgerAccessMain((authState as AuthManager.AuthState.LoggedIn).profile)
     }
-
-    // Not logged in — show login
-    if (authState is AuthManager.AuthState.LoggedOut) {
-        LoginScreen()
-        return
-    }
-
-    // Logged in — show main app
-    val profile = (authState as AuthManager.AuthState.LoggedIn).profile
-    BadgerAccessMain(profile)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SplashScreen() {
+    Box(Modifier.fillMaxSize().background(DarkBg), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text("🦡", fontSize = 60.sp)
+            Text("Badger Access", color = Amber500, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            CircularProgressIndicator(color = Amber500, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+// ── Tab definition ────────────────────────────────────────────────────────────
+
+enum class Tab(val label: String, val emoji: String, val requiredPage: String, val isLive: Boolean = false) {
+    Shift   ("Shift Setup", "🖨️", "printroom"),
+    Live    ("Live",        "🚚", "movement",       isLive = true),
+    Chat    ("Chat",        "💬", "chat"),
+    Settings("Settings",   "⚙️", "notifications"),
+}
+
+// ── Main shell ────────────────────────────────────────────────────────────────
+
 @Composable
 fun BadgerAccessMain(profile: UserProfile) {
-    val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
-    val coroutineScope = rememberCoroutineScope()
+    val visibleTabs = remember(profile.role) { Tab.entries.filter { AuthManager.canAccess(it.requiredPage) } }
+    val startTab    = if (Tab.Live in visibleTabs) Tab.Live else visibleTabs.first()
 
-    // Filter screens by role access
-    val visibleScreens = ALL_SCREENS.filter { AuthManager.canAccess(it.requiredPage) }
-    val startRoute = visibleScreens.firstOrNull()?.route ?: AccessScreen.Live.route
+    var currentTab        by remember { mutableStateOf(startTab) }
+    var showUpdateBanner  by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
+    val updateInfo         = MainActivity.pendingUpdate
+    val scope             = rememberCoroutineScope()
+    val context           = LocalContext.current
 
-    var showUpdateBanner by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
-    val updateInfo = MainActivity.pendingUpdate
+    val roleColor = roleColor(profile.role)
+    val roleIcon  = roleIcon(profile.role)
+    val roleLabel = roleLabel(profile.role)
 
-    // Current screen title
-    val currentScreen = visibleScreens.find { it.route == currentRoute }
+    Column(Modifier.fillMaxSize().background(DarkBg)) {
 
-    Scaffold(
-        topBar = {
+        // Status bar padding
+        Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+
+        // ── Top bar ───────────────────────────────────────────────────────
+        Box {
             Column {
-                TopAppBar(
-                    title = {
-                        Text(
-                            "🦡 Badger Access",
-                            color = Amber500,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    },
-                    actions = {
-                        // Role badge
-                        val roleLabel = when (profile.role) {
-                            "admin"       -> "👑"
-                            "print_room"  -> "🖨️"
-                            "truck_mover" -> "🚛"
-                            "trainee"     -> "📚"
-                            "driver"      -> "🚚"
-                            else          -> "👤"
-                        }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(DarkSurface)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Left: logo + role badge
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("🦡", fontSize = 18.sp)
+                        Text("Badger", color = LightText, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
                         Surface(
-                            color = Amber500.copy(alpha = 0.12f),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-                            modifier = Modifier.padding(end = 12.dp)
+                            color = roleColor.copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, roleColor.copy(alpha = 0.4f))
                         ) {
                             Text(
-                                "$roleLabel ${profile.displayLabel}",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                color = Amber500,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
+                                "$roleIcon $roleLabel",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                color = roleColor, fontSize = 10.sp, fontWeight = FontWeight.Bold
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBg)
-                )
+                    }
+
+                    // Right: LIVE pill + bell + avatar
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        if (currentTab == Tab.Live) {
+                            Surface(color = Green500, shape = RoundedCornerShape(999.dp)) {
+                                Text("●LIVE", modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                    color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                        Text("🔔", fontSize = 16.sp)
+                        val avatarBg = try { Color(android.graphics.Color.parseColor(profile.avatarColor)) } catch (_: Exception) { Amber500 }
+                        Box(Modifier.size(26.dp).clip(CircleShape).background(avatarBg), contentAlignment = Alignment.Center) {
+                            Text(profile.initials, color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+                // Amber accent line under top bar
+                Box(Modifier.fillMaxWidth().height(2.dp).background(Amber500))
+
                 // Update banner
                 if (showUpdateBanner && updateInfo != null) {
-                    Surface(color = Amber500) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Update ${updateInfo.tagName} available", color = Color.Black,
-                                style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                            Row {
-                                TextButton(onClick = {
-                                    coroutineScope.launch { AppUpdater.downloadAndInstall(navController.context, updateInfo) {} }
-                                    showUpdateBanner = false
-                                }) { Text("Install", color = Color.Black, fontWeight = FontWeight.Bold) }
-                                TextButton(onClick = { showUpdateBanner = false }) {
-                                    Text("Later", color = Color.Black.copy(alpha = 0.6f))
-                                }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(Amber500)
+                            .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Update ${updateInfo.tagName} available", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row {
+                            TextButton(onClick = { scope.launch { AppUpdater.downloadAndInstall(context, updateInfo) {} }; showUpdateBanner = false }) {
+                                Text("Install", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            TextButton(onClick = { showUpdateBanner = false }) {
+                                Text("Later", color = Color.Black.copy(alpha = 0.55f), fontSize = 12.sp)
                             }
                         }
                     }
                 }
             }
-        },
-        bottomBar = {
-            NavigationBar(containerColor = DarkSurface) {
-                visibleScreens.forEach { screen ->
-                    NavigationBarItem(
-                        icon = { Icon(screen.icon, contentDescription = screen.label) },
-                        label = { Text(screen.label, style = MaterialTheme.typography.labelSmall) },
-                        selected = currentRoute == screen.route,
-                        onClick = {
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Amber500,
-                            selectedTextColor = Amber500,
-                            unselectedIconColor = MutedText,
-                            unselectedTextColor = MutedText,
-                            indicatorColor = Amber500.copy(alpha = 0.12f)
+        }
+
+        // ── Content area ──────────────────────────────────────────────────
+        AnimatedContent(
+            targetState = currentTab,
+            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            label = "tab_anim",
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) { tab ->
+            when (tab) {
+                Tab.Shift    -> ShiftSetupScreen(profile)
+                Tab.Live     -> MovementScreen()
+                Tab.Chat     -> ChatScreen(profile = profile)
+                Tab.Settings -> SettingsScreen(profile = profile)
+            }
+        }
+
+        // ── Bottom nav ────────────────────────────────────────────────────
+        Column {
+            HorizontalDivider(color = Color(0xFF222222), thickness = 1.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkSurface)
+                    .navigationBarsPadding()
+            ) {
+                visibleTabs.forEach { tab ->
+                    val active     = currentTab == tab
+                    val tintColor  = if (tab.isLive) Green500 else Amber500
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(remember { MutableInteractionSource() }, indication = null) { currentTab = tab },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Active indicator — thin line at top edge
+                        Box(
+                            Modifier.fillMaxWidth().height(2.dp)
+                                .background(if (active) tintColor else Color.Transparent)
                         )
-                    )
+                        Spacer(Modifier.height(6.dp))
+                        // Emoji with subtle bg pill when active
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (active) tintColor.copy(alpha = 0.12f) else Color.Transparent)
+                                .padding(horizontal = 14.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(tab.emoji, fontSize = if (tab.isLive) 20.sp else 17.sp)
+                        }
+                        Text(
+                            tab.label,
+                            fontSize = 9.sp,
+                            fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Normal,
+                            color = if (active) tintColor else MutedText,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
                 }
             }
         }
-    ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = startRoute,
-            modifier = Modifier.padding(padding)
-        ) {
-            composable(AccessScreen.Live.route)       { MovementScreen() }
-            composable(AccessScreen.ShiftSetup.route) { ShiftSetupScreen() }
-            composable(AccessScreen.Chat.route)       { ChatScreen(profile = profile) }
-            composable(AccessScreen.Settings.route)   { NotificationSettingsScreen() }
-            composable(AccessScreen.Profile.route)    { ProfileScreen(profile = profile) }
-        }
     }
+}
+
+// ── Role helpers ──────────────────────────────────────────────────────────────
+fun roleColor(role: String): Color = when (role) {
+    "admin"       -> Amber500
+    "print_room"  -> Blue500
+    "truck_mover" -> Green500
+    "trainee"     -> Purple500
+    else          -> MutedText
+}
+fun roleIcon(role: String): String = when (role) {
+    "admin"       -> "👑"
+    "print_room"  -> "🖨️"
+    "truck_mover" -> "🚛"
+    "trainee"     -> "📚"
+    "driver"      -> "🚚"
+    else          -> "👤"
+}
+fun roleLabel(role: String): String = when (role) {
+    "admin"       -> "Admin"
+    "print_room"  -> "Print Room"
+    "truck_mover" -> "Truck Mover"
+    "trainee"     -> "Trainee"
+    "driver"      -> "Driver"
+    else          -> role.replace("_", " ")
 }
