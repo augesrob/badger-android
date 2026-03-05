@@ -1,10 +1,13 @@
 package com.badger.trucks
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,9 +28,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.UserProfile
+import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.chat.ChatScreen
 import com.badger.trucks.ui.login.LoginScreen
 import com.badger.trucks.ui.movement.MovementScreen
@@ -35,6 +41,7 @@ import com.badger.trucks.ui.settings.SettingsScreen
 import com.badger.trucks.ui.shiftsetup.ShiftSetupScreen
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.updater.AppUpdater
+import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -42,11 +49,23 @@ import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val micGranted = results[Manifest.permission.RECORD_AUDIO] ?: hasMicPermission()
+        RemoteLogger.i("MainActivity", "Permissions result: RECORD_AUDIO=$micGranted")
+        // Restart service now that mic may be granted so PTT/hotword init properly
+        if (micGranted && BadgerService.isRunning) restartService()
+        else startBadgerService()
+    }
+
     private var updateCheckJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        startBadgerService()
+        requestAppPermissions()
         setContent { BadgerTheme { BadgerAccessApp() } }
     }
 
@@ -62,6 +81,36 @@ class MainActivity : FragmentActivity() {
     override fun onPause() {
         super.onPause()
         updateCheckJob?.cancel()
+    }
+
+    fun hasMicPermission() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    fun requestMicPermission() {
+        requestPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+    }
+
+    fun restartService() {
+        stopService(Intent(this, BadgerService::class.java))
+        ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+        RemoteLogger.i("MainActivity", "BadgerService restarted (mic=${hasMicPermission()})")
+    }
+
+    private fun startBadgerService() {
+        if (!BadgerService.isRunning) {
+            ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+            RemoteLogger.i("MainActivity", "BadgerService started (mic=${hasMicPermission()})")
+        }
+    }
+
+    private fun requestAppPermissions() {
+        val needed = mutableListOf<String>()
+        if (!hasMicPermission()) needed.add(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (needed.isNotEmpty()) requestPermissionLauncher.launch(needed.toTypedArray())
     }
 
     private fun checkForUpdate() {
