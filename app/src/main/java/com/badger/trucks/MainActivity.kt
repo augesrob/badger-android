@@ -120,9 +120,50 @@ fun BadgerAccessMain(profile: UserProfile) {
 
     var currentTab        by remember { mutableStateOf(startTab) }
     var showUpdateBanner  by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
+
+    // If role changes and current tab is no longer accessible, reset to first available
+    LaunchedEffect(profile.role) {
+        if (currentTab !in visibleTabs) {
+            currentTab = visibleTabs.firstOrNull() ?: Tab.Live
+        }
+    }
+
     val updateInfo         = MainActivity.pendingUpdate
     val scope             = rememberCoroutineScope()
     val context           = LocalContext.current
+
+    // ── Role / permissions change dialog ──────────────────────────────────
+    var roleChangeDialog  by remember { mutableStateOf<AuthManager.ProfileEvent?>(null) }
+
+    LaunchedEffect(Unit) {
+        AuthManager.profileEvents.collect { event ->
+            roleChangeDialog = event
+        }
+    }
+
+    // Show dialog when role/permissions changed
+    roleChangeDialog?.let { event ->
+        val (title, message) = when (event) {
+            is AuthManager.ProfileEvent.RoleChanged ->
+                "🔄 Role Updated" to "Your role changed from ${roleLabel(event.oldRole)} to ${roleLabel(event.newRole)}.\n\nYour app access has been updated to reflect your new permissions."
+            is AuthManager.ProfileEvent.PermissionsChanged ->
+                "🔐 Permissions Updated" to event.message
+        }
+        AlertDialog(
+            onDismissRequest = { roleChangeDialog = null },
+            containerColor = DarkCard,
+            titleContentColor = LightText,
+            textContentColor = MutedText,
+            title = { Text(title, fontWeight = FontWeight.ExtraBold) },
+            text  = { Text(message, fontSize = 13.sp, lineHeight = 20.sp) },
+            confirmButton = {
+                Button(
+                    onClick = { roleChangeDialog = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black)
+                ) { Text("Got It", fontWeight = FontWeight.Bold) }
+            }
+        )
+    }
 
     val roleColor = roleColor(profile.role)
     val roleIcon  = roleIcon(profile.role)

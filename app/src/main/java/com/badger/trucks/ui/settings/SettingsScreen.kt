@@ -16,8 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.*import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -130,7 +129,7 @@ private fun SettingsMenuItem(icon: String, label: String, description: String, c
             .fillMaxWidth()
             .padding(bottom = 6.dp)
             .background(DarkCard, RoundedCornerShape(10.dp))
-            .clickable(remember { MutableInteractionSource() }, indication = androidx.compose.material.ripple.rememberRipple()) { onClick() }
+            .clickable(remember { MutableInteractionSource() }, indication = ripple()) { onClick() }
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)

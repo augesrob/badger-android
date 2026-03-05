@@ -6,7 +6,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -60,6 +62,7 @@ private val CARRIERS = listOf(
     "US Cellular" to "email.uscc.net",
 )
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProfileScreen(profile: UserProfile) {
     val scope   = rememberCoroutineScope()
@@ -569,7 +572,7 @@ fun ProfileScreen(profile: UserProfile) {
                     Text("No subscriptions yet.", fontSize = 12.sp, color = MutedText, modifier = Modifier.padding(top = 8.dp))
                 } else {
                     Spacer(Modifier.height(10.dp))
-                    androidx.compose.foundation.layout.FlowRow(
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
