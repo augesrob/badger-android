@@ -41,7 +41,7 @@ private val EVENT_ITEMS = listOf(
 private val CHANNEL_ITEMS = listOf(
     NotifItem(NotificationPrefsStore.KEY_CHANNEL_APP, Icons.Default.Notifications,   "Push Notifications",   "Show heads-up alerts on your device"),
     NotifItem(NotificationPrefsStore.KEY_CHANNEL_TTS, Icons.Default.RecordVoiceOver, "Text-to-Speech",       "Announce changes aloud via TTS"),
-    NotifItem(NotificationPrefsStore.KEY_HOTWORD,     Icons.Default.Mic,             "`"Badger`" Wake Word", "Say `"Badger`" to issue a voice command"),
+    NotifItem(NotificationPrefsStore.KEY_HOTWORD,     Icons.Default.Mic,             "Badger Wake Word",     "Say Badger to issue a voice command"),
     NotifItem(NotificationPrefsStore.KEY_SHOW_PTT,    Icons.Default.Radio,           "Push-to-Talk Button",  "Show PTT button on Live Movement"),
 )
 

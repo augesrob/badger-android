@@ -48,8 +48,7 @@ fun DebugScreen() {
     LaunchedEffect(Unit) {
         while (true) {
             serviceRunning = BadgerService.isRunning
-            micGranted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
-                == android.content.pm.PackageManager.PERMISSION_GRANTED
+            micGranted = (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
             logs = RemoteLogger.recentLogs()
             delay(2_000)
         }
