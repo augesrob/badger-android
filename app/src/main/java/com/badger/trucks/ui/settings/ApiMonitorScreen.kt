@@ -35,7 +35,7 @@ private val TABLES = listOf(
     Triple("live_movement",  "Live Movement",   "🚛"),
     Triple("loading_doors",  "Loading Doors",   "🚪"),
     Triple("status_values",  "Status Values",   "🎨"),
-    Triple("preshift",       "PreShift",        "📋"),
+    Triple("printroom_entries",       "PreShift",        "📋"),
     Triple("profiles",       "Profiles",        "👥"),
     Triple("debug_logs",     "Debug Logs",      "🐛"),
     Triple("backup_log",     "Backup Log",      "💾"),
