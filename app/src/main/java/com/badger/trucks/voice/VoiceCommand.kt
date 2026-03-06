@@ -399,23 +399,28 @@ class BadgerSpeechRecognizer(private val context: Context) {
 
         rec.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: Bundle?) {
+                // Destroy IMMEDIATELY so Google's speech service is released before
+                // HotwordListener tries to reconnect — otherwise we get ERROR_SERVER(11)
+                tearDown()
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 if (text != null) onResult(text) else onError("No speech detected")
             }
 
             override fun onError(error: Int) {
                 val isRetryable = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
-                        || error == SpeechRecognizer.ERROR_CLIENT  // error 11 — OS not ready yet
+                        || error == SpeechRecognizer.ERROR_CLIENT
 
                 if (isRetryable) {
-                    Log.w("SpeechRecognizer", "Retryable error $error — destroying and retrying in 400ms")
+                    Log.w("SpeechRecognizer", "Retryable error $error — destroying and retrying in 600ms")
                     tearDown()
                     handler.postDelayed({
                         doStartListening(onResult, onError)
-                    }, 400)
+                    }, 600)
                     return
                 }
 
+                // Destroy before calling onError so the mic is free for hotword
+                tearDown()
                 onError(when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH       -> "No match — try again"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Timed out — try again"

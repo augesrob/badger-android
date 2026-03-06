@@ -150,9 +150,9 @@ class HotwordListener(private val context: Context) {
                         tearDown(settle = false)
                         scheduleNextCycle(RETRY_DELAY_MS)
                     }
-                    SpeechRecognizer.ERROR_CLIENT -> {
-                        // OS speech service not ready — destroy and wait longer
-                        RemoteLogger.w(TAG, "[$myCycleId] $errorName — OS not ready, backing off ${RETRY_DELAY_MS}ms")
+                    SpeechRecognizer.ERROR_CLIENT, 11 -> {
+                        // OS speech service / Google server not ready — destroy and wait longer
+                        RemoteLogger.w(TAG, "[$myCycleId] $errorName — speech service busy, backing off ${RETRY_DELAY_MS}ms")
                         tearDown(settle = false)
                         scheduleNextCycle(RETRY_DELAY_MS)
                     }
@@ -204,6 +204,7 @@ class HotwordListener(private val context: Context) {
         SpeechRecognizer.ERROR_NETWORK_TIMEOUT   -> "NETWORK_TIMEOUT(7)"
         SpeechRecognizer.ERROR_SERVER            -> "SERVER(4)"
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "NO_PERMISSION(9)"
+        11                                       -> "SERVER_11(GoogleSpeechBusy)"
         else -> "UNKNOWN($error)"
     }
 }
