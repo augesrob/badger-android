@@ -13,9 +13,9 @@ import com.badger.trucks.util.RemoteLogger
 
 private const val TAG                = "HotwordListener"
 private const val HOTWORD            = "badger"
-private const val RESTART_DELAY_MS   = 1200L   // normal restart after clean end
-private const val RETRY_DELAY_MS     = 3000L   // retry after error (give OS time to release)
-private const val DESTROY_SETTLE_MS  = 500L    // wait after destroy() before re-creating
+private const val RESTART_DELAY_MS   = 1500L   // normal restart after clean end
+private const val RETRY_DELAY_MS     = 4000L   // retry after error (give OS time to release)
+private const val DESTROY_SETTLE_MS  = 800L    // wait after destroy() before re-creating
 // After TTS speaks, block hotword for this long so the mic doesn't pick up
 // the speaker output and re-trigger immediately.
 const val TTS_BLACKOUT_MS            = 3500L
@@ -91,7 +91,8 @@ class HotwordListener(private val context: Context) {
 
     private fun startCycle() {
         if (destroyed || paused || !active) return
-        tearDown(settle = false)
+        // tearDown already happened before scheduleNextCycle was called;
+        // DESTROY_SETTLE_MS has elapsed — safe to create a fresh recognizer now.
         detectedInCycle = false
         val myCycleId = ++cycleId
 
@@ -131,6 +132,7 @@ class HotwordListener(private val context: Context) {
                 if (HOTWORD in text) {
                     handleDetected(myCycleId)
                 } else {
+                    tearDown(settle = false)
                     scheduleNextCycle(RESTART_DELAY_MS)
                 }
             }
@@ -142,6 +144,7 @@ class HotwordListener(private val context: Context) {
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                         RemoteLogger.d(TAG, "[$myCycleId] $errorName — restarting")
+                        tearDown(settle = false)
                         scheduleNextCycle(RESTART_DELAY_MS)
                     }
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
@@ -162,6 +165,7 @@ class HotwordListener(private val context: Context) {
                     }
                     else -> {
                         RemoteLogger.w(TAG, "[$myCycleId] $errorName — restarting after delay")
+                        tearDown(settle = false)
                         scheduleNextCycle(RETRY_DELAY_MS)
                     }
                 }
