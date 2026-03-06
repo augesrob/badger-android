@@ -12,8 +12,11 @@ import android.util.Log
 
 private const val TAG            = "HotwordListener"
 private const val HOTWORD        = "badger"
-private const val RESTART_DELAY  = 800L   // ms between hotword cycles
-private const val RETRY_DELAY    = 1200L  // ms after an error before restarting
+private const val RESTART_DELAY  = 800L    // ms between hotword cycles
+private const val RETRY_DELAY    = 1200L   // ms after an error before restarting
+// After TTS speaks (which may say "Badger"), block hotword for this long so
+// the mic doesn't pick up the speaker output and re-trigger immediately.
+const val TTS_BLACKOUT_MS        = 2500L
 
 /**
  * Always-on hotword listener that runs inside BadgerService.
@@ -34,9 +37,11 @@ class HotwordListener(private val context: Context) {
 
     private val handler  = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
-    @Volatile private var active   = false   // currently running the hotword loop
-    @Volatile private var paused   = false   // paused while a command is processing
+    @Volatile private var active    = false   // currently running the hotword loop
+    @Volatile private var paused    = false   // paused while a command is processing
     @Volatile private var destroyed = false
+    // Prevents partial+final both firing in the same recognition cycle
+    @Volatile private var detectedInCycle = false
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -87,6 +92,7 @@ class HotwordListener(private val context: Context) {
     private fun startCycle() {
         if (destroyed || paused) return
         tearDown()
+        detectedInCycle = false   // reset per-cycle flag
 
         val rec = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = rec
@@ -168,9 +174,22 @@ class HotwordListener(private val context: Context) {
     }
 
     private fun handleDetected() {
-        if (paused) return   // already triggered, ignore double-fire from partial+final
+        if (paused || detectedInCycle) return  // block partial+final double-fire
+        detectedInCycle = true
         pause()              // stop listening while command runs
         onHotwordDetected?.invoke()
+    }
+
+    /**
+     * Call this when TTS finishes speaking so the hotword loop restarts
+     * after a short blackout delay (prevents the mic picking up "Badger"
+     * from the speaker output and re-triggering immediately).
+     */
+    fun resumeAfterTts(extraDelayMs: Long = TTS_BLACKOUT_MS) {
+        if (destroyed || !active) return
+        paused = false
+        Log.d(TAG, "Hotword resuming after TTS (blackout=${extraDelayMs}ms)")
+        scheduleNextCycle(extraDelayMs)
     }
 
     private fun tearDown() {

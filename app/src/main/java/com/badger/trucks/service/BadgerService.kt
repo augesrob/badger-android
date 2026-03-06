@@ -209,6 +209,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             ttsReady = true
+            // speak() will pause hotword before speaking and resumeAfterTts() afterwards
             speak("Badger live monitoring active")
         }
     }
@@ -377,7 +378,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         _voiceFeedback.value = null
                         releaseScreen()
                         lastHotwordMs = System.currentTimeMillis()
-                        mainHandler.post { hotwordListener?.resume() }
+                        // resumeAfterTts() used here — TTS just spoke so we need blackout
+                        // before hotword re-arms to prevent speaker echo re-triggering
+                    }
                     }
                 }
 
@@ -404,7 +407,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             _voiceFeedback.value = null
             releaseScreen()
             lastHotwordMs = System.currentTimeMillis()
-            mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
+            // speak() already calls resumeAfterTts() — no extra resume needed here
         }
     }
 
@@ -437,6 +440,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
         if (ttsEnabled && ttsReady && ttsOn) {
+            // Pause hotword BEFORE TTS starts so the mic doesn't pick up "Badger"
+            // from the speaker output and immediately re-trigger.
+            mainHandler.post { hotwordListener?.pause() }
+
             val uttId = "badger_${System.currentTimeMillis()}"
             requestAudioFocus()
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -444,12 +451,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 override fun onError(utteranceId: String?) {
                     abandonAudioFocus()
                     onDone?.invoke()
+                    // Resume hotword with blackout delay even on TTS error
+                    mainHandler.postDelayed({ hotwordListener?.resumeAfterTts() }, 0)
                 }
                 override fun onDone(utteranceId: String?) {
                     if (utteranceId == uttId) {
                         mainHandler.postDelayed({
                             abandonAudioFocus()
                             onDone?.invoke()
+                            // Resume hotword with TTS blackout so speaker echo doesn't re-trigger
+                            hotwordListener?.resumeAfterTts()
                         }, 600)
                     }
                 }
