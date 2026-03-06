@@ -506,7 +506,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             })
             tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
         } else {
+            // TTS off — still need to resume hotword since speak() paused it at the top
             onDone?.invoke()
+            mainHandler.postDelayed({ hotwordListener?.resumeAfterTts(1000L) }, 0)
         }
     }
 

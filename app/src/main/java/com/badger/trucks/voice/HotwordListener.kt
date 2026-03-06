@@ -18,7 +18,7 @@ private const val RETRY_DELAY_MS     = 4000L   // retry after error (give OS tim
 private const val DESTROY_SETTLE_MS  = 800L    // wait after destroy() before re-creating
 // After TTS speaks, block hotword for this long so the mic doesn't pick up
 // the speaker output and re-trigger immediately.
-const val TTS_BLACKOUT_MS            = 3500L
+const val TTS_BLACKOUT_MS            = 5000L
 // Startup delay — gives the TTS welcome announcement time to finish before
 // we open the mic.
 private const val STARTUP_DELAY_MS   = 6000L
