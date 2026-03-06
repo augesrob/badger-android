@@ -11,17 +11,17 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import com.badger.trucks.util.RemoteLogger
 
-private const val TAG            = "HotwordListener"
-private const val HOTWORD        = "badger"
-private const val RESTART_DELAY  = 800L
-private const val RETRY_DELAY    = 1500L
+private const val TAG                = "HotwordListener"
+private const val HOTWORD            = "badger"
+private const val RESTART_DELAY_MS   = 1200L   // normal restart after clean end
+private const val RETRY_DELAY_MS     = 3000L   // retry after error (give OS time to release)
+private const val DESTROY_SETTLE_MS  = 500L    // wait after destroy() before re-creating
 // After TTS speaks, block hotword for this long so the mic doesn't pick up
 // the speaker output and re-trigger immediately.
-const val TTS_BLACKOUT_MS        = 3500L
+const val TTS_BLACKOUT_MS            = 3500L
 // Startup delay — gives the TTS welcome announcement time to finish before
-// we open the mic. Without this the "Badger live monitoring active" TTS
-// audio feeds straight into the first recognition cycle.
-private const val STARTUP_DELAY_MS = 5000L
+// we open the mic.
+private const val STARTUP_DELAY_MS   = 6000L
 
 class HotwordListener(private val context: Context) {
 
@@ -34,12 +34,7 @@ class HotwordListener(private val context: Context) {
     private var active    = false
     private var paused    = false
     private var destroyed = false
-    // Prevents partial+final both firing in the same recognition cycle.
-    // Also used to discard any stale callbacks that arrive after pause().
-    private var cycleId   = 0   // incremented each startCycle(); callbacks check their copy
-
-    // Track whether a detection was already dispatched in this cycle so
-    // partial + final results don't both call onHotwordDetected.
+    private var cycleId   = 0
     private var detectedInCycle = false
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -54,17 +49,17 @@ class HotwordListener(private val context: Context) {
 
     fun pause() {
         paused = true
-        cycleId++          // invalidate any in-flight callbacks for the current cycle
+        cycleId++
         detectedInCycle = false
-        tearDown()
+        tearDown(settle = false)
         RemoteLogger.d(TAG, "Hotword paused (cycleId=$cycleId)")
     }
 
     fun resume() {
         if (destroyed || !active) return
         paused = false
-        RemoteLogger.d(TAG, "Hotword resuming (short delay)")
-        scheduleNextCycle(RESTART_DELAY)
+        RemoteLogger.d(TAG, "Hotword resuming")
+        scheduleNextCycle(RESTART_DELAY_MS)
     }
 
     fun resumeAfterTts(extraDelayMs: Long = TTS_BLACKOUT_MS) {
@@ -79,7 +74,7 @@ class HotwordListener(private val context: Context) {
         active    = false
         cycleId++
         handler.removeCallbacksAndMessages(null)
-        tearDown()
+        tearDown(settle = false)
         RemoteLogger.d(TAG, "Hotword destroyed")
     }
 
@@ -87,16 +82,18 @@ class HotwordListener(private val context: Context) {
 
     private fun scheduleNextCycle(delayMs: Long) {
         if (destroyed || paused || !active) return
+        // Always add settle time on top so the OS speech service is fully released
+        val totalDelay = delayMs + DESTROY_SETTLE_MS
         handler.postDelayed({
             if (!destroyed && !paused && active) startCycle()
-        }, delayMs)
+        }, totalDelay)
     }
 
     private fun startCycle() {
         if (destroyed || paused || !active) return
-        tearDown()
+        tearDown(settle = false)
         detectedInCycle = false
-        val myCycleId = ++cycleId   // capture this cycle's ID for callback validation
+        val myCycleId = ++cycleId
 
         val rec = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = rec
@@ -112,7 +109,6 @@ class HotwordListener(private val context: Context) {
 
         rec.setRecognitionListener(object : RecognitionListener {
 
-            /** Guard: ignore callbacks that belong to a stale cycle (after pause/destroy). */
             private fun isStale() = cycleId != myCycleId
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -131,47 +127,42 @@ class HotwordListener(private val context: Context) {
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.joinToString(" ")?.lowercase() ?: ""
-                RemoteLogger.d(TAG, "[$myCycleId] Hotword cycle result: '$text'")
+                RemoteLogger.d(TAG, "[$myCycleId] Result: '$text'")
                 if (HOTWORD in text) {
                     handleDetected(myCycleId)
                 } else {
-                    scheduleNextCycle(RESTART_DELAY)
+                    scheduleNextCycle(RESTART_DELAY_MS)
                 }
             }
 
             override fun onError(error: Int) {
                 if (isStale()) return
-                val errorName = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH          -> "NO_MATCH"
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT    -> "SPEECH_TIMEOUT"
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY   -> "RECOGNIZER_BUSY"
-                    SpeechRecognizer.ERROR_CLIENT            -> "CLIENT"
-                    SpeechRecognizer.ERROR_NETWORK           -> "NETWORK"
-                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT   -> "NETWORK_TIMEOUT"
-                    SpeechRecognizer.ERROR_AUDIO             -> "AUDIO"
-                    SpeechRecognizer.ERROR_SERVER            -> "SERVER"
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "NO_PERMISSION"
-                    else -> "UNKNOWN($error)"
-                }
+                val errorName = errorName(error)
                 when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                         RemoteLogger.d(TAG, "[$myCycleId] $errorName — restarting")
-                        scheduleNextCycle(RESTART_DELAY)
+                        scheduleNextCycle(RESTART_DELAY_MS)
                     }
-                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
+                        // Something else is using the mic — wait longer before retrying
+                        RemoteLogger.w(TAG, "[$myCycleId] $errorName — mic busy, backing off ${RETRY_DELAY_MS}ms")
+                        tearDown(settle = false)
+                        scheduleNextCycle(RETRY_DELAY_MS)
+                    }
                     SpeechRecognizer.ERROR_CLIENT -> {
-                        RemoteLogger.w(TAG, "[$myCycleId] $errorName — backing off")
-                        tearDown()
-                        scheduleNextCycle(RETRY_DELAY)
+                        // OS speech service not ready — destroy and wait longer
+                        RemoteLogger.w(TAG, "[$myCycleId] $errorName — OS not ready, backing off ${RETRY_DELAY_MS}ms")
+                        tearDown(settle = false)
+                        scheduleNextCycle(RETRY_DELAY_MS)
                     }
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
-                        RemoteLogger.e(TAG, "[$myCycleId] No mic permission — stopping")
+                        RemoteLogger.e(TAG, "[$myCycleId] No mic permission — stopping hotword")
                         active = false
                     }
                     else -> {
-                        RemoteLogger.w(TAG, "[$myCycleId] Error $errorName — restarting")
-                        scheduleNextCycle(RETRY_DELAY)
+                        RemoteLogger.w(TAG, "[$myCycleId] $errorName — restarting after delay")
+                        scheduleNextCycle(RETRY_DELAY_MS)
                     }
                 }
             }
@@ -191,15 +182,28 @@ class HotwordListener(private val context: Context) {
     private fun handleDetected(myCycleId: Int) {
         if (cycleId != myCycleId || detectedInCycle) return
         detectedInCycle = true
-        RemoteLogger.i(TAG, "[$myCycleId] Hotword DETECTED — pausing listener")
-        pause()   // increments cycleId, tears down recognizer, sets paused=true
+        RemoteLogger.i(TAG, "[$myCycleId] ✅ Hotword DETECTED — pausing")
+        pause()
         onHotwordDetected?.invoke()
     }
 
-    private fun tearDown() {
+    private fun tearDown(settle: Boolean) {
         try { recognizer?.stopListening() } catch (_: Exception) {}
         try { recognizer?.cancel()        } catch (_: Exception) {}
         try { recognizer?.destroy()       } catch (_: Exception) {}
         recognizer = null
+    }
+
+    private fun errorName(error: Int) = when (error) {
+        SpeechRecognizer.ERROR_NO_MATCH          -> "NO_MATCH(2)"
+        SpeechRecognizer.ERROR_CLIENT            -> "CLIENT(5)"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY   -> "RECOGNIZER_BUSY(8)"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT    -> "SPEECH_TIMEOUT(6)"
+        SpeechRecognizer.ERROR_AUDIO             -> "AUDIO(3)"
+        SpeechRecognizer.ERROR_NETWORK           -> "NETWORK(1)"
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT   -> "NETWORK_TIMEOUT(7)"
+        SpeechRecognizer.ERROR_SERVER            -> "SERVER(4)"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "NO_PERMISSION(9)"
+        else -> "UNKNOWN($error)"
     }
 }

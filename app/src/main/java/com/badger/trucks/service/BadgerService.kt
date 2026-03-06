@@ -358,7 +358,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 onResult = { text -> onCommandResult(text) },
                 onError  = { err  -> onCommandError(err)  }
             )
-        }, 450)
+        }, 800)  // 800ms: give OS time to fully release hotword recognizer before command starts
     }
 
     private fun onCommandResult(text: String) {
@@ -430,7 +430,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 _voiceFeedback.value = null
                 releaseScreen()
                 lastHotwordMs = System.currentTimeMillis()
-                mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)
+                mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)  // stale fallback, speak() handles resume via resumeAfterTts()
             }
         }
     }
@@ -445,7 +445,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             _voiceFeedback.value = null
             releaseScreen()
             lastHotwordMs = System.currentTimeMillis()
-            mainHandler.post { hotwordListener?.resumeAfterTts(500L) }
+            // Give the OS time to fully release the command recognizer before hotword restarts
+            mainHandler.post { hotwordListener?.resumeAfterTts(2000L) }
         }
     }
 
