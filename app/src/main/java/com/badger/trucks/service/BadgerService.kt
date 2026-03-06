@@ -301,8 +301,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
                 try {
                     loudnessEnhancer?.release()
-                    val sessionId = tts?.audioSessionId ?: android.media.AudioTrack.AUDIO_SESSION_ID_GENERATE
-                    loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
+                        loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(0).apply {
                         setTargetGain(gainMb)
                         enabled = true
                     }

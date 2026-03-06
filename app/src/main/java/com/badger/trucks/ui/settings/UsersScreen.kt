@@ -98,7 +98,7 @@ fun UsersScreen(currentProfile: UserProfile) {
                 }
                 else -> LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, bottom = 80.dp),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 80.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     item { Text("${filtered.size} user${if (filtered.size != 1) "s" else ""}", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp)) }
