@@ -67,11 +67,11 @@ fun SettingsScreen(profile: UserProfile, resetCounter: Int = 0) {
             null                     -> SettingsMenu(profile, onSelect = { activeSub = it })
             SettingsSub.Profile       -> SubScreenShell("👤 My Profile",       Amber500, { activeSub = null }) { ProfileScreen(profile) }
             SettingsSub.Notifications -> SubScreenShell("🔔 Notifications",    Purple500, { activeSub = null }) { NotificationSettingsScreen() }
-            SettingsSub.Users         -> SubScreenShell("👥 Users",            Amber500, { activeSub = null }) { AdminUsersStub() }
+            SettingsSub.Users         -> SubScreenShell("👥 Users",            Amber500, { activeSub = null }) { UsersScreen(profile) }
             SettingsSub.Statuses      -> SubScreenShell("🎨 Status Values",    Blue500,  { activeSub = null }) { StubContent("Status Values editor coming soon") }
-            SettingsSub.GlobalMsg     -> SubScreenShell("🌐 Global Message",   Green500, { activeSub = null }) { StubContent("Global message broadcast coming soon") }
-            SettingsSub.Backup        -> SubScreenShell("💾 Backup",           Purple500, { activeSub = null }) { StubContent("Backup & restore coming soon") }
-            SettingsSub.ApiMonitor    -> SubScreenShell("🔌 API Monitor",      Color(0xFF06B6D4), { activeSub = null }) { StubContent("API monitor coming soon") }
+            SettingsSub.GlobalMsg     -> SubScreenShell("🌐 Global Message",   Green500, { activeSub = null }) { GlobalMessagesScreen(profile) }
+            SettingsSub.Backup        -> SubScreenShell("💾 Backup",           Purple500, { activeSub = null }) { BackupScreen() }
+            SettingsSub.ApiMonitor    -> SubScreenShell("🔌 API Monitor",      Color(0xFF06B6D4), { activeSub = null }) { ApiMonitorScreen() }
             SettingsSub.Debug         -> SubScreenShell("🐛 Debug Logs",       Red500,   { activeSub = null }) { com.badger.trucks.ui.admin.DebugScreen() }
         }
     }
@@ -161,10 +161,4 @@ private fun StubContent(msg: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(msg, color = MutedText, fontSize = 13.sp)
     }
-}
-
-@Composable
-private fun AdminUsersStub() {
-    // Wire to real admin users screen when available
-    StubContent("Users management coming soon")
 }

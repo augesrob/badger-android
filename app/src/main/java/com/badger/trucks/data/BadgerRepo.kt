@@ -17,6 +17,7 @@ import com.badger.trucks.util.RemoteLogger
 
 object BadgerRepo {
     private val client get() = BadgerApp.supabase
+    val supabase get() = client
 
     // ===== LOADING DOORS =====
     suspend fun getLoadingDoors(): List<LoadingDoor> {

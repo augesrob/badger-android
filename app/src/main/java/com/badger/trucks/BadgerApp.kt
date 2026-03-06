@@ -8,6 +8,7 @@ import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.storage.Storage
+import io.github.jan.supabase.functions.Functions
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ class BadgerApp : Application() {
                 install(Postgrest)
                 install(Auth)
                 install(Storage)
+                install(Functions)
                 install(Realtime) {
                     secure = true
                     reconnectDelay = 3.seconds
