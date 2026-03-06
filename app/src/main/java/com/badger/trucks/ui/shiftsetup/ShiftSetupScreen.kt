@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,8 +42,11 @@ private val SHIFT_ITEMS_BY_ROLE = mapOf(
 )
 
 @Composable
-fun ShiftSetupScreen(profile: UserProfile) {
+fun ShiftSetupScreen(profile: UserProfile, resetCounter: Int = 0) {
     var activeSub by remember { mutableStateOf<ShiftSub?>(null) }
+
+    // Pop back to root menu when nav bar tab is re-tapped
+    LaunchedEffect(resetCounter) { if (resetCounter > 0) activeSub = null }
 
     BackHandler(enabled = activeSub != null) { activeSub = null }
 

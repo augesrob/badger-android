@@ -292,6 +292,10 @@ fun BadgerAccessMain(profile: UserProfile) {
         }
 
         // ── Content area ──────────────────────────────────────────────────
+        // resetCounter increments each time the active tab is re-tapped,
+        // signalling sub-screens to pop back to their root menu.
+        var resetCounter by remember { mutableStateOf(0) }
+
         AnimatedContent(
             targetState = currentTab,
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -299,10 +303,10 @@ fun BadgerAccessMain(profile: UserProfile) {
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) { tab ->
             when (tab) {
-                Tab.Shift    -> ShiftSetupScreen(profile)
+                Tab.Shift    -> ShiftSetupScreen(profile, resetCounter)
                 Tab.Live     -> MovementScreen()
                 Tab.Chat     -> ChatScreen(profile = profile)
-                Tab.Settings -> SettingsScreen(profile = profile)
+                Tab.Settings -> SettingsScreen(profile = profile, resetCounter)
             }
         }
 
@@ -322,7 +326,10 @@ fun BadgerAccessMain(profile: UserProfile) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable(remember { MutableInteractionSource() }, indication = null) { currentTab = tab },
+                            .clickable(remember { MutableInteractionSource() }, indication = null) {
+                                if (currentTab == tab) resetCounter++  // already on this tab — pop to root
+                                else currentTab = tab
+                            },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Active indicator — thin line at top edge

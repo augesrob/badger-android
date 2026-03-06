@@ -224,6 +224,25 @@ object BadgerRepo {
             .select { order("trailer_number", Order.ASCENDING) }
             .decodeList()
 
+    suspend fun addTrailer(trailerNumber: String, notes: String?) {
+        client.postgrest["trailer_list"].insert(
+            buildJsonObject {
+                put("trailer_number", trailerNumber)
+                if (!notes.isNullOrBlank()) put("notes", notes)
+            }
+        )
+    }
+
+    suspend fun setTrailerActive(id: Int, active: Boolean) {
+        client.postgrest["trailer_list"]
+            .update({ set("is_active", active) }) { filter { eq("id", id) } }
+    }
+
+    suspend fun deleteTrailer(id: Int) {
+        client.postgrest["trailer_list"]
+            .delete { filter { eq("id", id) } }
+    }
+
     // ===== AUTOMATION RULES =====
     suspend fun getAutomationRules(): List<AutomationRule> =
         client.postgrest["automation_rules"]

@@ -44,8 +44,11 @@ private val SETTINGS_BY_ROLE = mapOf(
 )
 
 @Composable
-fun SettingsScreen(profile: UserProfile) {
+fun SettingsScreen(profile: UserProfile, resetCounter: Int = 0) {
     var activeSub by remember { mutableStateOf<SettingsSub?>(null) }
+
+    // Pop back to root menu when nav bar tab is re-tapped
+    LaunchedEffect(resetCounter) { if (resetCounter > 0) activeSub = null }
 
     BackHandler(enabled = activeSub != null) { activeSub = null }
 
