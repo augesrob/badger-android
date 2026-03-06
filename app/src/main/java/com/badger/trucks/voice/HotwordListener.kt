@@ -12,40 +12,29 @@ import android.util.Log
 
 private const val TAG            = "HotwordListener"
 private const val HOTWORD        = "badger"
-private const val RESTART_DELAY  = 800L    // ms between hotword cycles
-private const val RETRY_DELAY    = 1200L   // ms after an error before restarting
-// After TTS speaks (which may say "Badger"), block hotword for this long so
-// the mic doesn't pick up the speaker output and re-trigger immediately.
+private const val RESTART_DELAY  = 800L
+private const val RETRY_DELAY    = 1200L
+// After TTS speaks, block hotword for this long so the mic doesn't pick up
+// the speaker output and re-trigger immediately.
 const val TTS_BLACKOUT_MS        = 2500L
 
-/**
- * Always-on hotword listener that runs inside BadgerService.
- *
- * Continuously listens with SpeechRecognizer.  When it hears "badger"
- * (anywhere in the result) it:
- *   1. Stops itself temporarily
- *   2. Fires onHotwordDetected — service plays a chime and shows the
- *      listening banner in the UI via StateFlow
- *   3. Caller invokes resume() after the command recognizer finishes,
- *      which restarts the hotword loop
- *
- * Must be created and used on the main thread (SpeechRecognizer requirement).
- */
 class HotwordListener(private val context: Context) {
 
     var onHotwordDetected: (() -> Unit)? = null
 
     private val handler  = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
-    @Volatile private var active    = false   // currently running the hotword loop
-    @Volatile private var paused    = false   // paused while a command is processing
-    @Volatile private var destroyed = false
-    // Prevents partial+final both firing in the same recognition cycle
-    @Volatile private var detectedInCycle = false
+
+    // All state touched only on main thread (SpeechRecognizer requirement)
+    private var active    = false
+    private var paused    = false
+    private var destroyed = false
+    // Prevents partial+final both firing in the same recognition cycle.
+    // Also used to discard any stale callbacks that arrive after pause().
+    private var cycleId   = 0   // incremented each startCycle(); callbacks check their copy
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /** Start the always-on hotword loop. Call from main thread. */
     fun start() {
         if (destroyed) return
         active = true
@@ -54,17 +43,13 @@ class HotwordListener(private val context: Context) {
         scheduleNextCycle(0)
     }
 
-    /**
-     * Pause hotword detection while a voice command is being processed.
-     * Call resume() when the command is done.
-     */
     fun pause() {
         paused = true
+        cycleId++          // invalidate any in-flight callbacks for the current cycle
         tearDown()
-        Log.d(TAG, "Hotword paused")
+        Log.d(TAG, "Hotword paused (cycleId=$cycleId)")
     }
 
-    /** Resume after command processing finished. */
     fun resume() {
         if (destroyed || !active) return
         paused = false
@@ -72,10 +57,17 @@ class HotwordListener(private val context: Context) {
         scheduleNextCycle(RESTART_DELAY)
     }
 
-    /** Permanently stop. */
+    fun resumeAfterTts(extraDelayMs: Long = TTS_BLACKOUT_MS) {
+        if (destroyed || !active) return
+        paused = false
+        Log.d(TAG, "Hotword resuming after TTS (blackout=${extraDelayMs}ms)")
+        scheduleNextCycle(extraDelayMs)
+    }
+
     fun destroy() {
         destroyed = true
         active    = false
+        cycleId++
         handler.removeCallbacksAndMessages(null)
         tearDown()
         Log.d(TAG, "Hotword destroyed")
@@ -84,15 +76,16 @@ class HotwordListener(private val context: Context) {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private fun scheduleNextCycle(delayMs: Long) {
+        if (destroyed || paused || !active) return
         handler.postDelayed({
             if (!destroyed && !paused && active) startCycle()
         }, delayMs)
     }
 
     private fun startCycle() {
-        if (destroyed || paused) return
+        if (destroyed || paused || !active) return
         tearDown()
-        detectedInCycle = false   // reset per-cycle flag
+        val myCycleId = ++cycleId   // capture this cycle's ID for callback validation
 
         val rec = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = rec
@@ -102,94 +95,81 @@ class HotwordListener(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            // Keep listening longer so the hotword has time to be spoken
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
         }
 
         rec.setRecognitionListener(object : RecognitionListener {
 
+            /** Guard: ignore callbacks that belong to a stale cycle (after pause/destroy). */
+            private fun isStale() = cycleId != myCycleId
+
             override fun onPartialResults(partialResults: Bundle?) {
-                // Check partial results so detection is instant — don't wait for final
+                if (isStale()) return
                 val partial = partialResults
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.joinToString(" ")
-                    ?.lowercase() ?: return
+                    ?.joinToString(" ")?.lowercase() ?: return
                 if (HOTWORD in partial) {
-                    Log.d(TAG, "Hotword detected in partial: '$partial'")
-                    handleDetected()
+                    Log.d(TAG, "[$myCycleId] Hotword in partial: '$partial'")
+                    handleDetected(myCycleId)
                 }
             }
 
             override fun onResults(results: Bundle?) {
+                if (isStale()) return   // already handled by partial, or we were paused
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.joinToString(" ")
-                    ?.lowercase() ?: ""
-                Log.d(TAG, "Hotword cycle result: '$text'")
+                    ?.joinToString(" ")?.lowercase() ?: ""
+                Log.d(TAG, "[$myCycleId] Hotword cycle result: '$text'")
                 if (HOTWORD in text) {
-                    handleDetected()
+                    handleDetected(myCycleId)
                 } else {
-                    // Didn't hear hotword — restart cycle
                     scheduleNextCycle(RESTART_DELAY)
                 }
             }
 
             override fun onError(error: Int) {
+                if (isStale()) return
                 when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        // Normal silence — just restart
-                        Log.d(TAG, "Hotword: no speech, restarting")
+                        Log.d(TAG, "[$myCycleId] No speech, restarting")
                         scheduleNextCycle(RESTART_DELAY)
                     }
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
                     SpeechRecognizer.ERROR_CLIENT -> {
-                        // Busy / OS not ready — back off longer
-                        Log.w(TAG, "Hotword: busy/client error $error, backing off")
+                        Log.w(TAG, "[$myCycleId] Busy/client error $error, backing off")
                         tearDown()
                         scheduleNextCycle(RETRY_DELAY)
                     }
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
-                        Log.e(TAG, "Hotword: no mic permission — stopping")
+                        Log.e(TAG, "[$myCycleId] No mic permission — stopping")
                         active = false
                     }
                     else -> {
-                        Log.w(TAG, "Hotword: error $error, restarting")
+                        Log.w(TAG, "[$myCycleId] Error $error, restarting")
                         scheduleNextCycle(RETRY_DELAY)
                     }
                 }
             }
 
-            override fun onReadyForSpeech(params: Bundle?)  {}
-            override fun onBeginningOfSpeech()              {}
-            override fun onRmsChanged(rmsdB: Float)         {}
+            override fun onReadyForSpeech(params: Bundle?)    {}
+            override fun onBeginningOfSpeech()                {}
+            override fun onRmsChanged(rmsdB: Float)           {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech()                    {}
+            override fun onEndOfSpeech()                      {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
 
         rec.startListening(intent)
-        Log.d(TAG, "Hotword cycle started")
+        Log.d(TAG, "[$myCycleId] Hotword cycle started")
     }
 
-    private fun handleDetected() {
-        if (paused || detectedInCycle) return  // block partial+final double-fire
-        detectedInCycle = true
-        pause()              // stop listening while command runs
+    private fun handleDetected(myCycleId: Int) {
+        if (cycleId != myCycleId) return   // stale callback
+        Log.d(TAG, "[$myCycleId] Hotword DETECTED — pausing")
+        pause()   // increments cycleId, tears down recognizer, sets paused=true
         onHotwordDetected?.invoke()
-    }
-
-    /**
-     * Call this when TTS finishes speaking so the hotword loop restarts
-     * after a short blackout delay (prevents the mic picking up "Badger"
-     * from the speaker output and re-triggering immediately).
-     */
-    fun resumeAfterTts(extraDelayMs: Long = TTS_BLACKOUT_MS) {
-        if (destroyed || !active) return
-        paused = false
-        Log.d(TAG, "Hotword resuming after TTS (blackout=${extraDelayMs}ms)")
-        scheduleNextCycle(extraDelayMs)
     }
 
     private fun tearDown() {

@@ -405,7 +405,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             _voiceFeedback.value = null
             releaseScreen()
             lastHotwordMs = System.currentTimeMillis()
-            // speak() already calls resumeAfterTts() — no extra resume needed here
+            mainHandler.post { hotwordListener?.resumeAfterTts(500L) }
         }
     }
 
