@@ -19,23 +19,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.badger.trucks.data.BadgerRepo
 import io.github.jan.supabase.postgrest.postgrest
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
-import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -89,25 +84,26 @@ fun BackupScreen() {
             try {
                 val session = BadgerRepo.supabase.auth.currentSessionOrNull()
                     ?: throw Exception("Not authenticated")
-
-                val client = HttpClient(CIO) {
-                    install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-                }
+                val token = session.accessToken
                 val body = buildJsonObject { put("webhook_url", webhookUrl) }.toString()
-                val resp = client.post("$VERCEL_URL/api/admin/backup") {
-                    bearerAuth(session.accessToken)
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
+
+                val response = withContext(Dispatchers.IO) {
+                    OkHttpClient().newCall(
+                        Request.Builder()
+                            .url("$VERCEL_URL/api/admin/backup")
+                            .addHeader("Authorization", "Bearer $token")
+                            .post(body.toRequestBody("application/json".toMediaType()))
+                            .build()
+                    ).execute()
                 }
-                client.close()
-                if (resp.status.isSuccess()) {
+                if (response.isSuccessful) {
                     toast = "✅ Backup started — check Discord"
-                    kotlinx.coroutines.delay(3000)
-                    load() // refresh log after backup completes
+                    kotlinx.coroutines.delay(4000)
+                    load()
                 } else {
-                    val errBody = resp.bodyAsText()
-                    error = "Backup failed (${resp.status.value}): $errBody"
+                    error = "Backup failed (${response.code}): ${response.body?.string()}"
                 }
+                response.close()
             } catch (e: Exception) {
                 error = "Error: ${e.message}"
             } finally {
