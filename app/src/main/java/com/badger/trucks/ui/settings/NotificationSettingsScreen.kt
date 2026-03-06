@@ -53,6 +53,7 @@ fun NotificationSettingsScreen() {
     var prefs        by remember { mutableStateOf(NotificationPrefsStore.getAll(context)) }
     var pttAudioMode by remember { mutableStateOf(NotificationPrefsStore.getPttAudioMode(context)) }
     var ttsAudioMode by remember { mutableStateOf(NotificationPrefsStore.getString(context, NotificationPrefsStore.KEY_AUDIO_FOCUS, NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT)) }
+    var volumeBoost  by remember { mutableStateOf(NotificationPrefsStore.getString(context, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)) }
     var saved        by remember { mutableStateOf(false) }
 
     var serviceRunning by remember { mutableStateOf(BadgerService.isRunning) }
@@ -189,6 +190,41 @@ fun NotificationSettingsScreen() {
                 NotificationPrefsStore.setString(context, NotificationPrefsStore.KEY_AUDIO_FOCUS, v)
                 saved = true; notifyService()
             }
+        }
+
+        HorizontalDivider(color = DarkBorder)
+        SectionLabel("🔊 Volume Boost")
+        Text("Amplify TTS announcements above the system volume limit.", fontSize = 12.sp, color = Color.Gray)
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                Triple(NotificationPrefsStore.VOLUME_BOOST_OFF,    "Off",    Color(0xFF374151)),
+                Triple(NotificationPrefsStore.VOLUME_BOOST_LOW,    "+4 dB",  Color(0xFF065F46)),
+                Triple(NotificationPrefsStore.VOLUME_BOOST_MEDIUM, "+8 dB",  Color(0xFF92400E)),
+                Triple(NotificationPrefsStore.VOLUME_BOOST_MAX,    "+12 dB", Color(0xFF7F1D1D)),
+            ).forEach { (v, label, bgColor) ->
+                val selected = volumeBoost == v
+                Card(
+                    modifier = Modifier.weight(1f).clickable {
+                        volumeBoost = v
+                        NotificationPrefsStore.setString(context, NotificationPrefsStore.KEY_VOLUME_BOOST, v)
+                        saved = true; notifyService()
+                    },
+                    colors = CardDefaults.cardColors(containerColor = if (selected) bgColor else Color(0xFF111111)),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            color = if (selected) Color.White else Color.Gray)
+                    }
+                }
+            }
+        }
+        if (volumeBoost == NotificationPrefsStore.VOLUME_BOOST_MAX) {
+            Text("⚠️ Max boost may exceed safe listening levels or distort speaker.", fontSize = 11.sp, color = Color(0xFFFCA5A5))
         }
 
         Spacer(Modifier.height(24.dp))

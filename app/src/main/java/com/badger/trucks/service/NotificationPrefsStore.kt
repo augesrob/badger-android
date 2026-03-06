@@ -46,6 +46,13 @@ object NotificationPrefsStore {
     const val AUDIO_FOCUS_DUCK      = "duck"
     const val AUDIO_FOCUS_OFF       = "off"
 
+    // Volume boost level
+    const val KEY_VOLUME_BOOST = "volume_boost"
+    const val VOLUME_BOOST_OFF    = "off"
+    const val VOLUME_BOOST_LOW    = "low"
+    const val VOLUME_BOOST_MEDIUM = "medium"
+    const val VOLUME_BOOST_MAX    = "max"
+
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 

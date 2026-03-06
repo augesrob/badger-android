@@ -92,6 +92,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var pttManager:     PushToTalkManager?  = null
     private var hotwordListener: HotwordListener?   = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
+    private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
 
     // Audio focus
     private var audioManager: AudioManager? = null
@@ -200,6 +201,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         commandRecognizer?.destroy()
         tts?.stop(); tts?.shutdown()
         abandonAudioFocus()
+        loudnessEnhancer?.release()
+        loudnessEnhancer = null
         scope.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
         releaseScreen()
@@ -274,8 +277,41 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
             }
         }
+        applyVolumeBoost()
         Log.d("BadgerService", "applySettings: audio focus mode = ${NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS)}")
-        // Audio focus mode is read fresh on each requestAudioFocus() call — no action needed
+    }
+
+    private fun applyVolumeBoost() {
+        val level = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
+        val am = audioManager ?: return
+        val maxMusic = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        when (level) {
+            NotificationPrefsStore.VOLUME_BOOST_OFF -> {
+                loudnessEnhancer?.enabled = false
+                loudnessEnhancer?.release()
+                loudnessEnhancer = null
+            }
+            else -> {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic, 0)
+                val gainMb = when (level) {
+                    NotificationPrefsStore.VOLUME_BOOST_LOW    -> 400
+                    NotificationPrefsStore.VOLUME_BOOST_MEDIUM -> 800
+                    NotificationPrefsStore.VOLUME_BOOST_MAX    -> 1200
+                    else -> 0
+                }
+                try {
+                    loudnessEnhancer?.release()
+                    val sessionId = tts?.audioSessionId ?: android.media.AudioTrack.AUDIO_SESSION_ID_GENERATE
+                    loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
+                        setTargetGain(gainMb)
+                        enabled = true
+                    }
+                    Log.d("BadgerService", "VolumeBoost: $level (+${gainMb/100}dB)")
+                } catch (e: Exception) {
+                    Log.w("BadgerService", "VolumeBoost failed: ${e.message}")
+                }
+            }
+        }
     }
 
 
@@ -302,7 +338,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun onHotwordDetected() {
         val now = System.currentTimeMillis()
         if (now - lastHotwordMs < HOTWORD_COOLDOWN_MS) {
-            hotwordListener?.resume()
+            // Do NOT resume here — resuming immediately causes an infinite loop.
+            // The hotword is already paused; schedule a delayed restart instead.
+            mainHandler.postDelayed({ hotwordListener?.resume() }, HOTWORD_COOLDOWN_MS)
             return
         }
         lastHotwordMs = now
