@@ -13,7 +13,7 @@ import com.badger.trucks.util.RemoteLogger
 
 private const val TAG                = "HotwordListener"
 private const val HOTWORD            = "badger"
-private const val RESTART_DELAY_MS   = 1500L   // normal restart after clean end
+private const val RESTART_DELAY_MS   = 300L    // short gap between cycles (teardown already happened)
 private const val RETRY_DELAY_MS     = 4000L   // retry after error (give OS time to release)
 private const val DESTROY_SETTLE_MS  = 800L    // wait after destroy() before re-creating
 // After TTS speaks, block hotword for this long so the mic doesn't pick up
@@ -104,8 +104,8 @@ class HotwordListener(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
         }
 
         rec.setRecognitionListener(object : RecognitionListener {
