@@ -378,9 +378,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         _voiceFeedback.value = null
                         releaseScreen()
                         lastHotwordMs = System.currentTimeMillis()
-                        // resumeAfterTts() used here — TTS just spoke so we need blackout
-                        // before hotword re-arms to prevent speaker echo re-triggering
-                    }
+                        // speak() already calls resumeAfterTts() on completion — no extra resume needed
                     }
                 }
 
