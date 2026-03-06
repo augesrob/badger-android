@@ -161,13 +161,6 @@ fun CheatSheetSubScreen() {
 }
 
 @Composable
-fun TractorsSubScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Tractor Trailer Database coming soon", color = MutedText, fontSize = 14.sp)
-    }
-}
-
-@Composable
 fun SubScreenShell(
     title: String,
     accentColor: Color,
