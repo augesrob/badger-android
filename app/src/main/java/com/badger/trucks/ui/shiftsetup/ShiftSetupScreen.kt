@@ -144,20 +144,16 @@ private fun SectionLabel(text: String) {
     )
 }
 
-// ── Stub content composables (called inside SubScreenShell) ──────────────────
+// ── Web-backed sub screens ────────────────────────────────────────────────────
 
 @Composable
 fun RouteSheetSubScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Route Sheet coming soon", color = MutedText, fontSize = 14.sp)
-    }
+    BadgerWebScreen("https://badger.augesrob.net/routesheet")
 }
 
 @Composable
 fun CheatSheetSubScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Cheat Sheet coming soon", color = MutedText, fontSize = 14.sp)
-    }
+    BadgerWebScreen("https://badger.augesrob.net/cheatsheet")
 }
 
 @Composable

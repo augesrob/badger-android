@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,14 +14,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.badger.trucks.data.BadgerRepo
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Order
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -38,22 +53,24 @@ private data class BackupLog(
 )
 
 private val fmt = DateTimeFormatter.ofPattern("MMM d, yyyy  h:mm a").withZone(ZoneId.systemDefault())
+private const val VERCEL_URL = "https://badger.augesrob.net"
 
 @Composable
 fun BackupScreen() {
     val scope = rememberCoroutineScope()
 
-    var log     by remember { mutableStateOf<BackupLog?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var running by remember { mutableStateOf(false) }
-    var error   by remember { mutableStateOf<String?>(null) }
-    var toast   by remember { mutableStateOf<String?>(null) }
+    var log        by remember { mutableStateOf<BackupLog?>(null) }
+    var loading    by remember { mutableStateOf(true) }
+    var running    by remember { mutableStateOf(false) }
+    var error      by remember { mutableStateOf<String?>(null) }
+    var toast      by remember { mutableStateOf<String?>(null) }
+    var webhookUrl by remember { mutableStateOf("") }
+    var showHook   by remember { mutableStateOf(false) }
 
     fun load() {
         scope.launch {
             loading = true; error = null
             try {
-                // backup_log uses a single row with id=1, upserted by the web app's backup API
                 log = BadgerRepo.supabase.postgrest["backup_log"]
                     .select { filter { eq("id", 1) } }
                     .decodeSingleOrNull<BackupLog>()
@@ -66,13 +83,33 @@ fun BackupScreen() {
     }
 
     fun triggerBackup() {
+        if (webhookUrl.isBlank()) { toast = "Enter a Discord webhook URL first"; return }
         scope.launch {
             running = true; error = null
             try {
-                // Backup is triggered via the Next.js API route (requires Discord webhook in localStorage on web)
-                // On mobile we show a message directing user to the web app
-                kotlinx.coroutines.delay(500)
-                toast = "ℹ️ Run backup from the web app — Settings → Backup"
+                val session = BadgerRepo.supabase.auth.currentSessionOrNull()
+                    ?: throw Exception("Not authenticated")
+
+                val client = HttpClient(CIO) {
+                    install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                }
+                val body = buildJsonObject { put("webhook_url", webhookUrl) }.toString()
+                val resp = client.post("$VERCEL_URL/api/admin/backup") {
+                    bearerAuth(session.accessToken)
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }
+                client.close()
+                if (resp.status.isSuccess()) {
+                    toast = "✅ Backup started — check Discord"
+                    kotlinx.coroutines.delay(3000)
+                    load() // refresh log after backup completes
+                } else {
+                    val errBody = resp.bodyAsText()
+                    error = "Backup failed (${resp.status.value}): $errBody"
+                }
+            } catch (e: Exception) {
+                error = "Error: ${e.message}"
             } finally {
                 running = false
             }
@@ -116,12 +153,9 @@ fun BackupScreen() {
                         val ts = runCatching {
                             fmt.format(Instant.parse(log!!.lastBackupAt!!))
                         }.getOrElse { log!!.lastBackupAt!! }
-
                         val statusColor = when (log?.lastBackupStatus) {
-                            "success" -> Color(0xFF22C55E)
-                            "partial" -> Color(0xFFF59E0B)
-                            "failed"  -> Color(0xFFEF4444)
-                            else      -> Color.Gray
+                            "success" -> Color(0xFF22C55E); "partial" -> Color(0xFFF59E0B)
+                            "failed"  -> Color(0xFFEF4444); else -> Color.Gray
                         }
                         val statusEmoji = when (log?.lastBackupStatus) {
                             "success" -> "✅"; "partial" -> "⚠️"; "failed" -> "❌"; else -> "❓"
@@ -151,21 +185,63 @@ fun BackupScreen() {
                 }
             }
 
-            // Trigger info card
+            // Trigger backup card
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1A2A)),
-                shape = RoundedCornerShape(10.dp)
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Row(modifier = Modifier.padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Info, null, tint = Color(0xFF3B82F6),
-                        modifier = Modifier.size(16.dp).padding(top = 1.dp))
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Backup, null, tint = Color(0xFF3B82F6), modifier = Modifier.size(18.dp))
+                        Text("Run Backup", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Webhook URL input
+                    OutlinedTextField(
+                        value = webhookUrl,
+                        onValueChange = { webhookUrl = it },
+                        label = { Text("Discord Webhook URL", fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("https://discord.com/api/webhooks/...", fontSize = 11.sp, color = Color.DarkGray) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF3B82F6),
+                            unfocusedBorderColor = Color(0xFF333333),
+                            focusedLabelColor = Color(0xFF3B82F6),
+                            unfocusedLabelColor = Color.Gray,
+                            cursorColor = Color(0xFF3B82F6),
+                        ),
+                    )
+
                     Text(
-                        "Backups are triggered from the web app at badger.augesrob.net → Admin → Backup. " +
-                        "A Discord webhook URL is required. Backups also run automatically each week via Vercel cron.",
+                        "Backup will be sent to this Discord webhook as a JSON file attachment.",
                         color = Color.Gray, fontSize = 11.sp, lineHeight = 16.sp
                     )
+
+                    Button(
+                        onClick = { triggerBackup() },
+                        enabled = !running && webhookUrl.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF3B82F6),
+                            disabledContainerColor = Color(0xFF1E3A5F),
+                        )
+                    ) {
+                        if (running) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp),
+                                color = Color.White, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Running backup…", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Run Backup Now", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 
