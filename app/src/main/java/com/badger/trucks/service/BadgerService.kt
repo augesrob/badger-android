@@ -337,12 +337,15 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun onHotwordDetected() {
         val now = System.currentTimeMillis()
         if (now - lastHotwordMs < HOTWORD_COOLDOWN_MS) {
-            // Do NOT resume here — resuming immediately causes an infinite loop.
-            // The hotword is already paused; schedule a delayed restart instead.
-            mainHandler.postDelayed({ hotwordListener?.resume() }, HOTWORD_COOLDOWN_MS)
+            // Still in cooldown — drop this event entirely. The hotword listener
+            // was paused by HotwordListener before invoking us; resume it so it
+            // goes back to listening, but with a short back-off so we don't spin.
+            RemoteLogger.w("BadgerService", "Hotword cooldown active — dropping event (${now - lastHotwordMs}ms since last)")
+            mainHandler.postDelayed({ hotwordListener?.resume() }, 2000L)
             return
         }
         lastHotwordMs = now
+        RemoteLogger.i("BadgerService", "Hotword accepted — starting command flow")
 
         wakeScreen()
         playActivationChime()
