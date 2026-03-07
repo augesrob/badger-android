@@ -31,12 +31,12 @@ import com.badger.trucks.ui.preshift.PreShiftScreen
 import com.badger.trucks.ui.printroom.PrintRoomScreen
 import com.badger.trucks.ui.theme.*
 
-private enum class ShiftSub { PrintRoom, PreShift, RouteSheet, CheatSheet, Tractors }
+private enum class ShiftSub { PrintRoom, PreShift, Tractors }
 
 private val SHIFT_ITEMS_BY_ROLE = mapOf(
-    "admin"       to listOf(ShiftSub.PrintRoom, ShiftSub.PreShift, ShiftSub.RouteSheet, ShiftSub.CheatSheet, ShiftSub.Tractors),
-    "print_room"  to listOf(ShiftSub.PrintRoom, ShiftSub.PreShift, ShiftSub.RouteSheet, ShiftSub.CheatSheet, ShiftSub.Tractors),
-    "truck_mover" to listOf(ShiftSub.PrintRoom, ShiftSub.PreShift, ShiftSub.RouteSheet, ShiftSub.CheatSheet, ShiftSub.Tractors),
+    "admin"       to listOf(ShiftSub.PrintRoom, ShiftSub.PreShift, ShiftSub.Tractors),
+    "print_room"  to listOf(ShiftSub.PrintRoom, ShiftSub.PreShift, ShiftSub.Tractors),
+    "truck_mover" to listOf(ShiftSub.PrintRoom, ShiftSub.PreShift, ShiftSub.Tractors),
     "trainee"     to listOf(ShiftSub.PrintRoom),
     "driver"      to emptyList(),
 )
@@ -65,8 +65,6 @@ fun ShiftSetupScreen(profile: UserProfile, resetCounter: Int = 0) {
             null              -> ShiftMenu(profile, onSelect = { activeSub = it })
             ShiftSub.PrintRoom  -> SubScreenShell("🖨️ Print Room",               Amber500,           { activeSub = null }) { PrintRoomScreen() }
             ShiftSub.PreShift   -> SubScreenShell("📋 PreShift Setup",           Green500,           { activeSub = null }) { PreShiftScreen() }
-            ShiftSub.RouteSheet -> SubScreenShell("📄 Route Sheet",              Blue500,            { activeSub = null }) { RouteSheetSubScreen() }
-            ShiftSub.CheatSheet -> SubScreenShell("📑 Cheat Sheet",              Color(0xFF06B6D4),  { activeSub = null }) { CheatSheetSubScreen() }
             ShiftSub.Tractors   -> SubScreenShell("🚛 Tractor Trailer Database", Purple500,          { activeSub = null }) { TractorsSubScreen() }
         }
     }
@@ -108,8 +106,6 @@ private data class ItemDef(val icon: String, val label: String, val description:
 private fun shiftItemDef(sub: ShiftSub): ItemDef = when (sub) {
     ShiftSub.PrintRoom  -> ItemDef("🖨️", "Print Room",               "Loading doors, trucks & staging",           Amber500)
     ShiftSub.PreShift   -> ItemDef("📋", "PreShift Setup",           "Staging door truck placement",              Green500)
-    ShiftSub.RouteSheet -> ItemDef("📄", "Route Sheet",              "View & download tonight's routes",          Blue500)
-    ShiftSub.CheatSheet -> ItemDef("📑", "Cheat Sheet",              "Quick reference & door assignments",        Color(0xFF06B6D4))
     ShiftSub.Tractors   -> ItemDef("🚛", "Tractor Trailer Database", "Manage tractors, trailers & assignments",  Purple500)
 }
 
@@ -144,17 +140,7 @@ private fun SectionLabel(text: String) {
     )
 }
 
-// ── Web-backed sub screens ────────────────────────────────────────────────────
 
-@Composable
-fun RouteSheetSubScreen() {
-    BadgerWebScreen("https://badger.augesrob.net/routesheet")
-}
-
-@Composable
-fun CheatSheetSubScreen() {
-    BadgerWebScreen("https://badger.augesrob.net/cheatsheet")
-}
 
 @Composable
 fun SubScreenShell(
