@@ -119,10 +119,10 @@ Secrets are stored in `local.properties` at the root of the Android project (thi
 
 ```properties
 # local.properties (DO NOT COMMIT)
-SUPABASE_URL=https://abcdefghijklmnop.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-GEMINI_API_KEY=AIzaSy...
-GH_TOKEN=github_pat_11ABCDEF...
+SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+SUPABASE_KEY=your-supabase-anon-key-here
+GEMINI_API_KEY=your-gemini-api-key-here
+GH_TOKEN=github_pat_your_token_here
 ```
 
 ### GitHub Actions (Automated Builds)
