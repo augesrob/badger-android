@@ -50,8 +50,6 @@ import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
 import com.badger.trucks.util.RemoteLogger
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class DoorInfo(
@@ -164,11 +162,7 @@ fun MovementScreen() {
 
     LaunchedEffect(Unit) {
         loadData()
-        // Service already maintains the realtime channel for live_movement.
-        // This is just a 30s polling fallback in case the screen loads before the service syncs.
-        launch {
-            while (isActive) { delay(30_000L); loadData() }
-        }
+        // Service handles realtime updates via StateFlow — no polling needed here
     }
 
     if (loading) {
