@@ -167,7 +167,7 @@ fun MovementScreen() {
         // Service already maintains the realtime channel for live_movement.
         // This is just a 30s polling fallback in case the screen loads before the service syncs.
         launch {
-            while (isActive) { delay(1_000L); loadData() }
+            while (isActive) { delay(30_000L); loadData() }
         }
     }
 
