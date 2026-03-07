@@ -1,5 +1,4 @@
 package com.badger.trucks.ui.movement
-package com.badger.trucks.ui.movement
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
