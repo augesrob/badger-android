@@ -1,4 +1,5 @@
 package com.badger.trucks.service
+package com.badger.trucks.service
 
 import android.app.*
 import android.content.Context

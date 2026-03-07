@@ -1,4 +1,5 @@
 package com.badger.trucks.ui.movement
+package com.badger.trucks.ui.movement
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -42,8 +43,6 @@ import com.badger.trucks.service.NotificationPrefsStore
 import com.badger.trucks.ui.theme.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
-import android.content.Intent
-import android.widget.Toast
 import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -98,6 +97,28 @@ fun MovementScreen() {
     // ── PTT state comes from the service — always alive even when screen is off ──
     val pttRecording by BadgerService.pttRecording.collectAsState()
     val pttIncoming  by BadgerService.pttIncoming.collectAsState()
+
+    // Sync service StateFlow updates into local state
+    LaunchedEffect(serviceTrucks) {
+        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
+    }
+    LaunchedEffect(serviceDoors) {
+        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
+    }
+
+    fun loadData() {
+        scope.launch {
+            try {
+                printroom = BadgerRepo.getPrintroomEntries()
+                staging   = BadgerRepo.getStagingDoors()
+                statuses  = BadgerRepo.getStatuses()
+                tractors  = BadgerRepo.getTractors()
+                val fetchedTrucks = BadgerRepo.getLiveMovement()
+                val fetchedDoors  = BadgerRepo.getLoadingDoors()
+                if (fetchedTrucks.isNotEmpty()) localTrucks = fetchedTrucks
+                if (fetchedDoors.isNotEmpty())  localDoors  = fetchedDoors
+            } catch (e: Exception) { e.printStackTrace() }
+        }
     }
 
     LaunchedEffect(Unit) {
