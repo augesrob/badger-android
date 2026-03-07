@@ -116,8 +116,105 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             mgr.onDone = { _pttIncoming.value = false }
             mgr.startListening()
         }
+
+        startRealtimeSync()
+        Log.d("BadgerService", "Service created")
+        RemoteLogger.i("BadgerService", "Service started — URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_TOGGLE_TTS -> {
+                ttsEnabled = !ttsEnabled
+                updateServiceNotification()
+                if (ttsEnabled) speak("Text to speech enabled")
+                RemoteLogger.i("TTS", "TTS ${if (ttsEnabled) "ENABLED" else "DISABLED"}")
+            }
+            ACTION_PTT_START -> {
+                _pttRecording.value = true
+                pttManager?.startRecording()
+                RemoteLogger.i("PTT", "PTT recording STARTED")
+            }
+            ACTION_PTT_STOP -> {
+                _pttRecording.value = false
+                pttManager?.stopRecording()
+                RemoteLogger.i("PTT", "PTT recording STOPPED")
+            }
+            ACTION_APPLY_SETTINGS -> applySettingsLive()
+            ACTION_STOP -> stopSelf()
+        }
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isRunning = false
+        _pttRecording.value = false
+        _pttIncoming.value  = false
+        pttManager?.destroy()
+        tts?.stop(); tts?.shutdown()
+        abandonAudioFocus()
+        loudnessEnhancer?.release()
+        loudnessEnhancer = null
+        scope.cancel()
+        wakeLock?.let { if (it.isHeld) it.release() }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale.US
+            ttsReady = true
+            speak("Badger live monitoring active")
+        }
+    }
+
+    // ── Audio Focus ───────────────────────────────────────────────────────────
+
+    private fun requestAudioFocus() {
+        val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
+            NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT)
+        if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
+        val focusType = when (mode) {
+            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+            NotificationPrefsStore.AUDIO_FOCUS_DUCK      -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            else                                          -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            audioFocusRequest = AudioFocusRequest.Builder(focusType)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener(audioFocusListener)
+                .setAcceptsDelayedFocusGain(false)
+                .setWillPauseWhenDucked(mode == NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE)
+                .build()
+                .also { audioManager?.requestAudioFocus(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, focusType)
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+                audioFocusRequest = null
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(audioFocusListener)
+            }
+        } catch (e: Exception) {
+            Log.w("BadgerService", "abandonAudioFocus error: ${e.message}")
+        }
+    }
+
+    private fun applySettingsLive() {
         applyVolumeBoost()
-        Log.d("BadgerService", "applySettings: audio focus mode = ${NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS)}")
     }
 
     private fun applyVolumeBoost() {
