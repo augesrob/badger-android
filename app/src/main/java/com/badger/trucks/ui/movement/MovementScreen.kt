@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
@@ -41,7 +42,8 @@ import com.badger.trucks.service.NotificationPrefsStore
 import com.badger.trucks.ui.theme.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
-import android.util.Log
+import android.content.Intent
+import android.widget.Toast
 import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -86,6 +88,7 @@ fun MovementScreen() {
     // Button visibility from settings
     val prefs = remember { NotificationPrefsStore.getAll(context) }
     val showPtt    = prefs[NotificationPrefsStore.KEY_SHOW_PTT]    != false
+    val showMic    = prefs[NotificationPrefsStore.KEY_SHOW_MIC]    != false
     val showFixAll = prefs[NotificationPrefsStore.KEY_SHOW_FIXALL] != false
 
     var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }
@@ -303,6 +306,33 @@ fun MovementScreen() {
                 Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
             }
             } // end showPtt
+
+            // Gemini / voice assistant button
+            if (showMic) {
+                FloatingActionButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            // Fallback: open Google Assistant
+                            try {
+                                val intent = Intent(Intent.ACTION_ASSIST).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                            } catch (e2: Exception) {
+                                Toast.makeText(context, "No voice assistant found", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    containerColor = Color(0xFF1A73E8), shape = CircleShape
+                ) {
+                    Icon(Icons.Default.Mic, contentDescription = "Voice assistant", tint = Color.White)
+                }
+            } // end showMic
 
             // Fix All
             if (showFixAll) {
