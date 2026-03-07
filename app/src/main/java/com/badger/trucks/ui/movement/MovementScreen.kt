@@ -50,6 +50,7 @@ import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
 import com.badger.trucks.util.RemoteLogger
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class DoorInfo(
