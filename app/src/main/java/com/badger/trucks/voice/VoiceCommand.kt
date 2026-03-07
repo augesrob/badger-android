@@ -294,31 +294,6 @@ Now parse: "$normalized"
             VoiceResult.Error("Error: ${e.message}")
         }
     }
-
-    private fun fuzzyMatchStatus(raw: String, statuses: List<StatusValue>): StatusValue? {
-        statuses.find { it.statusName.equals(raw, ignoreCase = true) }?.let { return it }
-        val cleanRaw = raw.lowercase().replace(Regex("[^a-z0-9]"), "")
-        val alias = mapOf(
-            "indoor" to "In Door", "indoors" to "In Door", "inthedoor" to "In Door", "indock" to "In Door",
-            "putaway" to "Put Away", "putitaway" to "Put Away",
-            "onroute" to "On Route", "enroute" to "On Route",
-            "infront" to "In Front", "upfront" to "In Front",
-            "inback" to "In Back",
-            "therock" to "The Rock",
-            "trailerarea" to "Trailer Area",
-            "eot" to "End Of Tote", "endoftote" to "End Of Tote",
-            "eotplus1" to "EOT+1", "eot1" to "EOT+1",
-            "donefornight" to "Done for Night", "done" to "Done for Night",
-            "hundredpercent" to "100%",
-            "changetruck" to "Change Truck/Trailer", "changetrailer" to "Change Truck/Trailer"
-        )
-        alias[cleanRaw]?.let { name -> statuses.find { it.statusName == name }?.let { return it } }
-        statuses.find { it.statusName.lowercase().replace(Regex("[^a-z0-9]"), "") == cleanRaw }?.let { return it }
-        return statuses.find {
-            val c = it.statusName.lowercase().replace(Regex("[^a-z0-9]"), "")
-            c.contains(cleanRaw) || cleanRaw.contains(c)
-        }
-    }
 }
 
 // ΓöÇΓöÇΓöÇ Android SpeechRecognizer wrapper ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
