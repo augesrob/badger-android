@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
@@ -33,8 +34,12 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
@@ -96,6 +101,28 @@ fun MovementScreen() {
     // ── PTT state comes from the service — always alive even when screen is off ──
     val pttRecording by BadgerService.pttRecording.collectAsState()
     val pttIncoming  by BadgerService.pttIncoming.collectAsState()
+
+    // ── Voice command state ───────────────────────────────────────────────────
+    val voiceProcessing by BadgerService.voiceProcessing.collectAsState()
+    val voiceFeedback   by BadgerService.voiceFeedback.collectAsState()
+    var hasMicPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    }
+    val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasMicPermission = granted
+        if (!granted) Toast.makeText(context, "Mic permission required for voice commands", Toast.LENGTH_SHORT).show()
+    }
+
+    fun startVoiceCommand() {
+        if (voiceProcessing) return
+        if (!hasMicPermission) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        context.startService(Intent(context, BadgerService::class.java).apply {
+            action = BadgerService.ACTION_MANUAL_VOICE
+        })
+    }
 
     // Sync service StateFlow updates into local state
     LaunchedEffect(serviceTrucks) {
@@ -327,30 +354,46 @@ fun MovementScreen() {
             }
             } // end showPtt
 
-            // Gemini / voice assistant button
-            if (showMic) {
-                FloatingActionButton(
-                    onClick = {
-                        try {
-                            val intent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            // Fallback: open Google Assistant
-                            try {
-                                val intent = Intent(Intent.ACTION_ASSIST).apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                }
-                                context.startActivity(intent)
-                            } catch (e2: Exception) {
-                                Toast.makeText(context, "No voice assistant found", Toast.LENGTH_SHORT).show()
-                            }
-                        }
+            // Voice feedback banner
+            val voiceBannerText = when {
+                voiceProcessing       -> "⚙️ Processing..."
+                voiceFeedback != null -> voiceFeedback ?: ""
+                else                  -> ""
+            }
+            val voiceBannerVisible = voiceProcessing || voiceFeedback != null
+            AnimatedVisibility(visible = voiceBannerVisible) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = when {
+                        voiceProcessing                              -> Color(0xFF2D2A1A)
+                        voiceFeedback?.startsWith("✅") == true     -> Color(0xFF1A2D1A)
+                        voiceFeedback != null                        -> Color(0xFF2D1A1A)
+                        else                                         -> Color(0xFF1A1A2D)
                     },
-                    containerColor = Color(0xFF1A73E8), shape = CircleShape
+                    tonalElevation = 4.dp
                 ) {
-                    Icon(Icons.Default.Mic, contentDescription = "Voice assistant", tint = Color.White)
+                    Text(voiceBannerText, modifier = Modifier.padding(12.dp), color = LightText, fontSize = 14.sp)
+                }
+            }
+
+            // Mic / voice command button
+            if (showMic) {
+                val micScale by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
+                    initialValue = 1f, targetValue = 1.15f,
+                    animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "mic-scale"
+                )
+                val micAnimScale = if (voiceProcessing) micScale else 1f
+                val micColor = when {
+                    voiceProcessing -> Color(0xFFF59E0B)
+                    else            -> Color(0xFF1A73E8)
+                }
+                FloatingActionButton(
+                    onClick = { startVoiceCommand() },
+                    modifier = Modifier.scale(micAnimScale),
+                    containerColor = micColor, shape = CircleShape
+                ) {
+                    Icon(if (voiceProcessing) Icons.Default.MicOff else Icons.Default.Mic,
+                        contentDescription = "Voice command", tint = Color.White)
                 }
             } // end showMic
 

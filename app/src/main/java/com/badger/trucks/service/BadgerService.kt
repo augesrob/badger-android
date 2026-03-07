@@ -22,7 +22,12 @@ import com.badger.trucks.data.DoorStatusValue
 import com.badger.trucks.data.DockLockStatusValue
 import com.badger.trucks.data.LoadingDoor
 import com.badger.trucks.data.LiveMovement
+import com.badger.trucks.data.LiveMovementStatus
+import com.badger.trucks.data.StatusValue
+import com.badger.trucks.voice.BadgerSpeechRecognizer
 import com.badger.trucks.voice.PushToTalkManager
+import com.badger.trucks.voice.VoiceCommandProcessor
+import com.badger.trucks.voice.VoiceResult
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.*
@@ -42,6 +47,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_PTT_STOP    = "com.badger.trucks.PTT_STOP"
         const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
         const val ACTION_APPLY_SETTINGS = "com.badger.trucks.APPLY_SETTINGS"
+        const val ACTION_MANUAL_VOICE   = "com.badger.trucks.MANUAL_VOICE"
 
         var ttsEnabled = true
         var isRunning  = false
@@ -51,6 +57,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         private val _pttIncoming  = MutableStateFlow(false)
         val pttRecording: StateFlow<Boolean> = _pttRecording.asStateFlow()
         val pttIncoming:  StateFlow<Boolean> = _pttIncoming.asStateFlow()
+
+        // Voice command UI state
+        private val _voiceProcessing = MutableStateFlow(false)
+        private val _voiceFeedback   = MutableStateFlow<String?>(null)
+        val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
+        val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
 
         // Live truck/door data — updated optimistically on voice commands
         private val _liveTrucks          = MutableStateFlow<List<LiveMovement>>(emptyList())
@@ -69,6 +81,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var ttsReady     = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
+    private var commandRecognizer: BadgerSpeechRecognizer? = null
     private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
 
     // Audio focus
@@ -81,6 +94,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     // Cached data for voice commands
+    @Volatile private var cachedStatuses: List<StatusValue> = emptyList()
     @Volatile private var cachedDoorStatusValues: List<DoorStatusValue> = emptyList()
     @Volatile private var cachedDockLockStatusValues: List<DockLockStatusValue> = emptyList()
     private var cachedTrucks: List<LiveMovement> = emptyList()
@@ -118,6 +132,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
 
         startRealtimeSync()
+        scope.launch { refreshVoiceData() }
         Log.d("BadgerService", "Service created")
         RemoteLogger.i("BadgerService", "Service started — URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
     }
@@ -141,6 +156,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 RemoteLogger.i("PTT", "PTT recording STOPPED")
             }
             ACTION_APPLY_SETTINGS -> applySettingsLive()
+            ACTION_MANUAL_VOICE   -> onManualVoiceTrigger()
             ACTION_STOP -> stopSelf()
         }
         return START_STICKY
@@ -154,6 +170,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _pttRecording.value = false
         _pttIncoming.value  = false
         pttManager?.destroy()
+        commandRecognizer?.destroy()
         tts?.stop(); tts?.shutdown()
         abandonAudioFocus()
         loudnessEnhancer?.release()
@@ -210,6 +227,103 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
         } catch (e: Exception) {
             Log.w("BadgerService", "abandonAudioFocus error: ${e.message}")
+        }
+    }
+
+    // ── Voice command flow (manual trigger from mic FAB) ──────────────────────
+
+    private fun onManualVoiceTrigger() {
+        if (_voiceProcessing.value) return
+        _voiceProcessing.value = false
+        _voiceFeedback.value   = null
+        if (commandRecognizer == null) commandRecognizer = BadgerSpeechRecognizer(this)
+        mainHandler.post {
+            commandRecognizer?.startListening(
+                onResult = { text -> onCommandResult(text) },
+                onError  = { err  -> onCommandError(err)  }
+            )
+        }
+    }
+
+    private fun onCommandResult(text: String) {
+        _voiceProcessing.value = true
+        RemoteLogger.i("Voice", "Command heard: \"$text\"")
+        scope.launch {
+            try {
+                val cmd    = VoiceCommandProcessor.parseCommand(text, cachedTrucks, cachedDoors, cachedStatuses)
+                val result = VoiceCommandProcessor.executeCommand(cmd, cachedTrucks, cachedDoors, cachedStatuses)
+
+                val (feedback, spokenText) = when (result) {
+                    is VoiceResult.Success -> "✅ ${result.description}" to result.description
+                    is VoiceResult.Error   -> "❌ ${result.message}" to "Sorry, ${result.message}"
+                    VoiceResult.Unknown    -> "🤔 Didn't understand" to "I didn't understand that"
+                }
+
+                when (result) {
+                    is VoiceResult.Success -> RemoteLogger.i("Voice", "✅ ${result.description}")
+                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "❌ ${result.message} — heard: \"$text\"")
+                    VoiceResult.Unknown    -> RemoteLogger.w("Voice", "🤔 Unknown: \"$text\"")
+                }
+
+                // Optimistic UI update
+                if (result is VoiceResult.Success) {
+                    when (cmd.action) {
+                        "truck_status" -> {
+                            val newStatus = cachedStatuses.find { it.statusName == cmd.status }
+                            cachedTrucks = cachedTrucks.map { t ->
+                                if (t.truckNumber == cmd.truck)
+                                    t.copy(statusValues = LiveMovementStatus(statusName = newStatus?.statusName, statusColor = newStatus?.statusColor))
+                                else t
+                            }
+                        }
+                        "door_status" -> {
+                            cachedDoors = cachedDoors.map { d ->
+                                if (d.doorName == cmd.door) d.copy(doorStatus = cmd.status ?: "") else d
+                            }
+                        }
+                    }
+                    scope.launch { refreshVoiceData() }
+                }
+
+                _voiceFeedback.value   = feedback
+                _voiceProcessing.value = false
+                speak(spokenText) {
+                    scope.launch {
+                        delay(if (result is VoiceResult.Success) 1500L else 3000L)
+                        _voiceFeedback.value = null
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("BadgerService", "Voice command error", e)
+                _voiceProcessing.value = false
+                _voiceFeedback.value   = "❌ Error: ${e.message}"
+                delay(3000)
+                _voiceFeedback.value = null
+            }
+        }
+    }
+
+    private fun onCommandError(err: String) {
+        _voiceProcessing.value = false
+        _voiceFeedback.value   = "❌ $err"
+        RemoteLogger.w("Voice", "Speech recognition error: $err")
+        scope.launch {
+            delay(2500)
+            _voiceFeedback.value = null
+        }
+    }
+
+    private suspend fun refreshVoiceData() {
+        try {
+            cachedTrucks  = BadgerRepo.getLiveMovement()
+            cachedDoors   = BadgerRepo.getLoadingDoors()
+            cachedStatuses = BadgerRepo.getStatuses()
+            cachedDoorStatusValues = BadgerRepo.getDoorStatusValues()
+            _liveDoorStatusValues.value = cachedDoorStatusValues
+            cachedDockLockStatusValues = BadgerRepo.getDockLockStatusValues()
+            _liveDockLockStatusValues.value = cachedDockLockStatusValues
+        } catch (e: Exception) {
+            Log.w("BadgerService", "refreshVoiceData error: ${e.message}")
         }
     }
 
