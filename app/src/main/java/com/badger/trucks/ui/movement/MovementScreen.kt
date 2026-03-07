@@ -14,8 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
@@ -34,18 +32,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.badger.trucks.data.*
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.service.NotificationPrefsStore
 import com.badger.trucks.ui.theme.*
-import com.badger.trucks.voice.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import android.util.Log
@@ -93,72 +86,15 @@ fun MovementScreen() {
     // Button visibility from settings
     val prefs = remember { NotificationPrefsStore.getAll(context) }
     val showPtt    = prefs[NotificationPrefsStore.KEY_SHOW_PTT]    != false
-    val showMic    = prefs[NotificationPrefsStore.KEY_SHOW_MIC]    != false
     val showFixAll = prefs[NotificationPrefsStore.KEY_SHOW_FIXALL] != false
 
     var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }
     var doorStatusDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
     var dockLockDialogDoor by remember { mutableStateOf<LoadingDoor?>(null) }
 
-    // Voice state — observe from service so hotword and mic button share same UI
-    val hotwordActive   by BadgerService.hotwordActive.collectAsState()
-    val voiceProcessing by BadgerService.voiceProcessing.collectAsState()
-    val voiceFeedback   by BadgerService.voiceFeedback.collectAsState()
-    // Local speech recognizer only for the manual mic FAB
-    val speechRecognizer = remember { BadgerSpeechRecognizer(context) }
-
     // ── PTT state comes from the service — always alive even when screen is off ──
     val pttRecording by BadgerService.pttRecording.collectAsState()
     val pttIncoming  by BadgerService.pttIncoming.collectAsState()
-
-    var hasMicPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasMicPermission = granted
-        Toast.makeText(context, if (granted) "✅ Mic permission granted — press 📻 to talk" else "❌ Mic permission denied", Toast.LENGTH_LONG).show()
-    }
-
-    // When service gets a realtime update, sync into localTrucks
-    LaunchedEffect(serviceTrucks) {
-        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
-    }
-    LaunchedEffect(serviceDoors) {
-        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
-    }
-
-    fun loadData() {
-        scope.launch {
-            try {
-                printroom = BadgerRepo.getPrintroomEntries()
-                staging   = BadgerRepo.getStagingDoors()
-                statuses  = BadgerRepo.getStatuses()
-                tractors  = BadgerRepo.getTractors()
-                // Also load trucks/doors directly in case service hasn't synced yet
-                val fetchedTrucks = BadgerRepo.getLiveMovement()
-                val fetchedDoors  = BadgerRepo.getLoadingDoors()
-                if (fetchedTrucks.isNotEmpty()) localTrucks = fetchedTrucks
-                if (fetchedDoors.isNotEmpty())  localDoors  = fetchedDoors
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { speechRecognizer.destroy() }
-    }
-
-    fun startVoiceCommand() {
-        // If hotword or processing already active, ignore tap
-        if (hotwordActive || voiceProcessing) return
-        // Trigger the same hotword-detected flow in the service so UI state is unified
-        context.startService(Intent(context, BadgerService::class.java).apply {
-            action = BadgerService.ACTION_MANUAL_VOICE
-        })
     }
 
     LaunchedEffect(Unit) {
@@ -252,14 +188,6 @@ fun MovementScreen() {
         })
     }
 
-    val voiceBannerText = when {
-        hotwordActive   -> "🎙 Listening for command..."
-        voiceProcessing -> "⚙️ Processing..."
-        voiceFeedback != null -> voiceFeedback ?: ""
-        else            -> ""
-    }
-    val voiceBannerVisible = hotwordActive || voiceProcessing || voiceFeedback != null
-
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().background(DarkBg).padding(horizontal = 12.dp),
@@ -293,23 +221,6 @@ fun MovementScreen() {
                     ) {
                         Text("📻 Someone is talking...", modifier = Modifier.padding(12.dp),
                             color = Color(0xFF4ADE80), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                // Voice feedback banner
-                AnimatedVisibility(visible = voiceBannerVisible) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        shape = RoundedCornerShape(10.dp),
-                        color = when {
-                            hotwordActive   -> Color(0xFF1E3A5F)
-                            voiceProcessing -> Color(0xFF2D2A1A)
-                            voiceFeedback?.startsWith("✅") == true -> Color(0xFF1A2D1A)
-                            voiceFeedback != null -> Color(0xFF2D1A1A)
-                            else -> DarkCard
-                        }
-                    ) {
-                        Text(voiceBannerText, modifier = Modifier.padding(12.dp), color = LightText, fontSize = 13.sp)
                     }
                 }
 
@@ -380,17 +291,11 @@ fun MovementScreen() {
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onPress = {
-                                if (!hasMicPermission) {
-                                    Toast.makeText(context, "Requesting mic permission...", Toast.LENGTH_SHORT).show()
-                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                } else {
-                                    Toast.makeText(context, "🔴 Recording...", Toast.LENGTH_SHORT).show()
-                                    // Tell the service to start/stop recording
+                                Toast.makeText(context, "🔴 Recording...", Toast.LENGTH_SHORT).show()
                                     context.startService(Intent(context, BadgerService::class.java).apply { action = BadgerService.ACTION_PTT_START })
                                     tryAwaitRelease()
                                     context.startService(Intent(context, BadgerService::class.java).apply { action = BadgerService.ACTION_PTT_STOP })
                                     Toast.makeText(context, "📤 Sending...", Toast.LENGTH_SHORT).show()
-                                }
                             }
                         )
                     }
@@ -398,29 +303,6 @@ fun MovementScreen() {
                 Text(if (pttRecording) "🔴" else "📻", fontSize = 20.sp)
             }
             } // end showPtt
-
-            // Voice command mic
-            if (showMic) {
-            val micScale by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
-                initialValue = 1f, targetValue = 1.15f,
-                animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-                label = "pulse"
-            )
-            val micAnimScale = if (hotwordActive) micScale else 1f
-            val micColor = when {
-                hotwordActive   -> Color(0xFFEF4444)
-                voiceProcessing -> Color(0xFFF59E0B)
-                else -> Amber500
-            }
-            FloatingActionButton(
-                onClick = { startVoiceCommand() },
-                modifier = Modifier.scale(micAnimScale),
-                containerColor = micColor, shape = CircleShape
-            ) {
-                Icon(if (hotwordActive) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = "Voice command", tint = Color.Black)
-            }
-            } // end showMic
 
             // Fix All
             if (showFixAll) {

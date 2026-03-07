@@ -6,15 +6,11 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.ToneGenerator
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.view.WindowManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -26,13 +22,7 @@ import com.badger.trucks.data.DoorStatusValue
 import com.badger.trucks.data.DockLockStatusValue
 import com.badger.trucks.data.LoadingDoor
 import com.badger.trucks.data.LiveMovement
-import com.badger.trucks.data.LiveMovementStatus
-import com.badger.trucks.data.StatusValue
-import com.badger.trucks.voice.BadgerSpeechRecognizer
-import com.badger.trucks.voice.HotwordListener
 import com.badger.trucks.voice.PushToTalkManager
-import com.badger.trucks.voice.VoiceCommandProcessor
-import com.badger.trucks.voice.VoiceResult
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.*
@@ -51,8 +41,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_PTT_START   = "com.badger.trucks.PTT_START"
         const val ACTION_PTT_STOP    = "com.badger.trucks.PTT_STOP"
         const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
-        const val ACTION_MANUAL_VOICE  = "com.badger.trucks.MANUAL_VOICE"
-        const val ACTION_DATA_CHANGED  = "com.badger.trucks.DATA_CHANGED"
         const val ACTION_APPLY_SETTINGS = "com.badger.trucks.APPLY_SETTINGS"
 
         var ttsEnabled = true
@@ -63,14 +51,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         private val _pttIncoming  = MutableStateFlow(false)
         val pttRecording: StateFlow<Boolean> = _pttRecording.asStateFlow()
         val pttIncoming:  StateFlow<Boolean> = _pttIncoming.asStateFlow()
-
-        // Hotword / voice command state — UI observes these
-        private val _hotwordActive   = MutableStateFlow(false)
-        private val _voiceProcessing = MutableStateFlow(false)
-        private val _voiceFeedback   = MutableStateFlow<String?>(null)
-        val hotwordActive:   StateFlow<Boolean>  = _hotwordActive.asStateFlow()
-        val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
-        val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
 
         // Live truck/door data — updated optimistically on voice commands
         private val _liveTrucks          = MutableStateFlow<List<LiveMovement>>(emptyList())
@@ -88,10 +68,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady     = false
     private var wakeLock: PowerManager.WakeLock? = null
-    private var screenLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
-    private var hotwordListener: HotwordListener?   = null
-    private var commandRecognizer: BadgerSpeechRecognizer? = null
     private var loudnessEnhancer: android.media.audiofx.LoudnessEnhancer? = null
 
     // Audio focus
@@ -103,11 +80,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         Log.d("BadgerService", "Audio focus change: $focusChange")
     }
 
-    private val HOTWORD_COOLDOWN_MS = 4_000L
-    @Volatile private var lastHotwordMs = 0L
-
     // Cached data for voice commands
-    @Volatile private var cachedStatuses: List<StatusValue> = emptyList()
     @Volatile private var cachedDoorStatusValues: List<DoorStatusValue> = emptyList()
     @Volatile private var cachedDockLockStatusValues: List<DockLockStatusValue> = emptyList()
     private var cachedTrucks: List<LiveMovement> = emptyList()
@@ -142,140 +115,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
             mgr.onDone = { _pttIncoming.value = false }
             mgr.startListening()
-        }
-
-        commandRecognizer = BadgerSpeechRecognizer(this)
-
-        val hotwordEnabled = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_HOTWORD)
-        mainHandler.post {
-            hotwordListener = HotwordListener(this).also { hw ->
-                hw.onHotwordDetected = { onHotwordDetected() }
-                if (hotwordEnabled) hw.start()
-                else Log.d("BadgerService", "Hotword disabled by user pref")
-            }
-        }
-
-        scope.launch { refreshVoiceData() }
-        startRealtimeSync()
-        Log.d("BadgerService", "Service created")
-        RemoteLogger.i("BadgerService", "Service started — URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_TOGGLE_TTS -> {
-                ttsEnabled = !ttsEnabled
-                updateServiceNotification()
-                if (ttsEnabled) speak("Text to speech enabled")
-                RemoteLogger.i("TTS", "TTS ${if (ttsEnabled) "ENABLED" else "DISABLED"}")
-            }
-            ACTION_PTT_START -> {
-                _pttRecording.value = true
-                pttManager?.startRecording()
-                RemoteLogger.i("PTT", "PTT recording STARTED")
-            }
-            ACTION_PTT_STOP  -> {
-                _pttRecording.value = false
-                pttManager?.stopRecording()
-                RemoteLogger.i("PTT", "PTT recording STOPPED — sending")
-            }
-            ACTION_MANUAL_VOICE -> mainHandler.post { onHotwordDetected() }
-            ACTION_APPLY_SETTINGS -> applySettingsLive()
-            ACTION_STOP -> stopSelf()
-        }
-        return START_STICKY
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onDestroy() {
-        super.onDestroy()
-        isRunning = false
-        _pttRecording.value  = false
-        _pttIncoming.value   = false
-        _hotwordActive.value = false
-        _voiceProcessing.value = false
-        _voiceFeedback.value   = null
-        pttManager?.destroy()
-        mainHandler.post { hotwordListener?.destroy() }
-        commandRecognizer?.destroy()
-        tts?.stop(); tts?.shutdown()
-        abandonAudioFocus()
-        loudnessEnhancer?.release()
-        loudnessEnhancer = null
-        scope.cancel()
-        wakeLock?.let { if (it.isHeld) it.release() }
-        releaseScreen()
-    }
-
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            tts?.language = Locale.US
-            ttsReady = true
-            // speak() will pause hotword before speaking and resumeAfterTts() afterwards
-            speak("Badger live monitoring active")
-        }
-    }
-
-    // ── Audio Focus ───────────────────────────────────────────────────────────
-
-    private fun requestAudioFocus() {
-        val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
-            NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT)
-        if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
-
-        val focusType = when (mode) {
-            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
-            NotificationPrefsStore.AUDIO_FOCUS_DUCK      -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            else                                          -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-            audioFocusRequest = AudioFocusRequest.Builder(focusType)
-                .setAudioAttributes(attrs)
-                .setOnAudioFocusChangeListener(audioFocusListener)
-                .setAcceptsDelayedFocusGain(false)   // we don't need delayed — abandon when done
-                .setWillPauseWhenDucked(mode == NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE)
-                .build()
-                .also { audioManager?.requestAudioFocus(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, focusType)
-        }
-        Log.d("BadgerService", "Audio focus requested: $mode")
-    }
-
-    private fun abandonAudioFocus() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
-                audioFocusRequest = null
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager?.abandonAudioFocus(audioFocusListener)
-            }
-        } catch (e: Exception) {
-            Log.w("BadgerService", "abandonAudioFocus error: ${e.message}")
-        }
-    }
-
-    /** Called when user changes settings — re-reads prefs and applies live without restart */
-    private fun applySettingsLive() {
-        val hotwordEnabled = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_HOTWORD)
-        mainHandler.post {
-            hotwordListener?.let { hw ->
-                if (hotwordEnabled) {
-                    hw.resume()
-                    Log.d("BadgerService", "applySettings: hotword resumed")
-                } else {
-                    hw.pause()
-                    Log.d("BadgerService", "applySettings: hotword paused")
-                }
-            }
         }
         applyVolumeBoost()
         Log.d("BadgerService", "applySettings: audio focus mode = ${NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS)}")
@@ -312,176 +151,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
         }
     }
-
-
-    // ── Hotword flow ──────────────────────────────────────────────────────────
-
-    private fun wakeScreen() {
-        try {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            screenLock?.let { if (it.isHeld) it.release() }
-            @Suppress("DEPRECATION")
-            screenLock = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "badger:screen_wake"
-            ).also { it.acquire(8_000L) }
-        } catch (e: Exception) {
-            Log.w("BadgerService", "Could not wake screen: ${e.message}")
-        }
-    }
-
-    private fun releaseScreen() {
-        try { screenLock?.let { if (it.isHeld) it.release() }; screenLock = null } catch (_: Exception) {}
-    }
-
-    private fun onHotwordDetected() {
-        val now = System.currentTimeMillis()
-        if (now - lastHotwordMs < HOTWORD_COOLDOWN_MS) {
-            // Still in cooldown — drop this event entirely. The hotword listener
-            // was paused by HotwordListener before invoking us; resume it so it
-            // goes back to listening, but with a short back-off so we don't spin.
-            RemoteLogger.w("BadgerService", "Hotword cooldown active — dropping event (${now - lastHotwordMs}ms since last)")
-            mainHandler.postDelayed({ hotwordListener?.resume() }, 2000L)
-            return
-        }
-        lastHotwordMs = now
-        RemoteLogger.i("BadgerService", "Hotword accepted — starting command flow")
-
-        wakeScreen()
-        playActivationChime()
-        _hotwordActive.value   = true
-        _voiceProcessing.value = false
-        _voiceFeedback.value   = null
-
-        mainHandler.postDelayed({
-            commandRecognizer?.startListening(
-                onResult = { text -> onCommandResult(text) },
-                onError  = { err  -> onCommandError(err)  }
-            )
-        }, 800)  // 800ms: give OS time to fully release hotword recognizer before command starts
-    }
-
-    private fun onCommandResult(text: String) {
-        _hotwordActive.value   = false
-        _voiceProcessing.value = true
-        RemoteLogger.i("Voice", "Command heard: \"$text\"")
-
-        scope.launch {
-            try {
-                val cmd    = VoiceCommandProcessor.parseCommand(text, cachedTrucks, cachedDoors, cachedStatuses)
-                val result = VoiceCommandProcessor.executeCommand(cmd, cachedTrucks, cachedDoors, cachedStatuses)
-
-                val (feedback, spokenText) = when (result) {
-                    is VoiceResult.Success -> "✅ ${result.description}" to result.description
-                    is VoiceResult.Error   -> "❌ ${result.message}" to "Sorry, ${result.message}"
-                    VoiceResult.Unknown    -> "🤔 Didn't understand: \"$text\"" to "I didn't understand that"
-                }
-
-                when (result) {
-                    is VoiceResult.Success -> RemoteLogger.i("Voice", "✅ ${result.description} — action=${cmd.action} truck=${cmd.truck} status=${cmd.status} door=${cmd.door}")
-                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "❌ ${result.message} — heard: \"$text\"")
-                    VoiceResult.Unknown    -> RemoteLogger.w("Voice", "🤔 Unknown command: \"$text\"")
-                }
-
-                _voiceFeedback.value   = feedback
-                _voiceProcessing.value = false
-
-                if (result is VoiceResult.Success) {
-                    when (cmd.action) {
-                        "truck_status" -> {
-                            val newStatus = cachedStatuses.find { it.statusName == cmd.status }
-                            cachedTrucks = cachedTrucks.map { t ->
-                                if (t.truckNumber == cmd.truck)
-                                    t.copy(statusValues = LiveMovementStatus(
-                                        statusName  = newStatus?.statusName,
-                                        statusColor = newStatus?.statusColor
-                                    ))
-                                else t
-                            }
-                            cmd.truck?.let { knownStatuses[it] = newStatus?.statusName }
-                        }
-                        "door_status" -> {
-                            cachedDoors = cachedDoors.map { d ->
-                                if (d.doorName == cmd.door) d.copy(doorStatus = cmd.status ?: "") else d
-                            }
-                            cmd.door?.let { knownDoorStatus[it] = cmd.status }
-                        }
-                    }
-
-                    sendBroadcast(Intent(ACTION_DATA_CHANGED))
-                    scope.launch { refreshVoiceData() }
-                }
-
-                speak(spokenText) {
-                    scope.launch {
-                        delay(if (result is VoiceResult.Success) 1500L else 3000L)
-                        _voiceFeedback.value = null
-                        releaseScreen()
-                        lastHotwordMs = System.currentTimeMillis()
-                        // speak() already calls resumeAfterTts() on completion — no extra resume needed
-                    }
-                }
-
-            } catch (e: Exception) {
-                Log.e("BadgerService", "Voice command error", e)
-                _voiceProcessing.value = false
-                _voiceFeedback.value   = "❌ Error: ${e.message}"
-                delay(3000)
-                _voiceFeedback.value = null
-                releaseScreen()
-                lastHotwordMs = System.currentTimeMillis()
-                mainHandler.postDelayed({ hotwordListener?.resume() }, 1000)  // stale fallback, speak() handles resume via resumeAfterTts()
-            }
-        }
-    }
-
-    private fun onCommandError(err: String) {
-        _hotwordActive.value   = false
-        _voiceProcessing.value = false
-        _voiceFeedback.value   = "❌ $err"
-        RemoteLogger.w("Voice", "Speech recognition error: $err")
-        scope.launch {
-            delay(2000)
-            _voiceFeedback.value = null
-            releaseScreen()
-            lastHotwordMs = System.currentTimeMillis()
-            // Give the OS time to fully release the command recognizer before hotword restarts
-            mainHandler.post { hotwordListener?.resumeAfterTts(2000L) }
-        }
-    }
-
-    private fun playActivationChime() {
-        try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
-            toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
-            mainHandler.postDelayed({ toneGen.release() }, 200)
-        } catch (e: Exception) {
-            Log.w("BadgerService", "Chime failed: ${e.message}")
-        }
-    }
-
-    private suspend fun refreshVoiceData() {
-        try {
-            cachedTrucks          = BadgerRepo.getLiveMovement()
-            cachedDoors           = BadgerRepo.getLoadingDoors()
-            cachedStatuses        = BadgerRepo.getStatuses()
-            cachedDoorStatusValues = BadgerRepo.getDoorStatusValues()
-            _liveDoorStatusValues.value = cachedDoorStatusValues
-            cachedDockLockStatusValues = BadgerRepo.getDockLockStatusValues()
-            _liveDockLockStatusValues.value = cachedDockLockStatusValues
-        } catch (e: Exception) {
-            Log.w("BadgerService", "refreshVoiceData error: ${e.message}")
-        }
-    }
-
     // ── TTS ───────────────────────────────────────────────────────────────────
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
         if (ttsEnabled && ttsReady && ttsOn) {
-            // Pause hotword BEFORE TTS starts so the mic doesn't pick up "Badger"
-            // from the speaker output and immediately re-trigger.
-            mainHandler.post { hotwordListener?.pause() }
 
             val uttId = "badger_${System.currentTimeMillis()}"
             requestAudioFocus()
@@ -490,8 +164,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 override fun onError(utteranceId: String?) {
                     abandonAudioFocus()
                     onDone?.invoke()
-                    // Resume hotword with blackout delay even on TTS error
-                    mainHandler.postDelayed({ hotwordListener?.resumeAfterTts() }, 0)
                 }
                 override fun onDone(utteranceId: String?) {
                     if (utteranceId == uttId) {
@@ -499,16 +171,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                             abandonAudioFocus()
                             onDone?.invoke()
                             // Resume hotword with TTS blackout so speaker echo doesn't re-trigger
-                            hotwordListener?.resumeAfterTts()
                         }, 600)
                     }
                 }
             })
             tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
         } else {
-            // TTS off — still need to resume hotword since speak() paused it at the top
             onDone?.invoke()
-            mainHandler.postDelayed({ hotwordListener?.resumeAfterTts(1000L) }, 0)
         }
     }
 
