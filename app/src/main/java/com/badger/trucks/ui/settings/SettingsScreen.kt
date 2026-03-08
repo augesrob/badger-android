@@ -32,11 +32,11 @@ import com.badger.trucks.ui.theme.*
 private enum class SettingsSub {
     Profile, Notifications,
     // Admin-only
-    Users, Statuses, GlobalMsg, Backup, ApiMonitor, Debug
+    Users, Statuses, GlobalMsg, Backup, ApiMonitor, DataReset, Debug
 }
 
 private val SETTINGS_BY_ROLE = mapOf(
-    "admin"       to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.Users, SettingsSub.Statuses, SettingsSub.GlobalMsg, SettingsSub.Backup, SettingsSub.ApiMonitor, SettingsSub.Debug),
+    "admin"       to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.Users, SettingsSub.Statuses, SettingsSub.GlobalMsg, SettingsSub.Backup, SettingsSub.ApiMonitor, SettingsSub.DataReset, SettingsSub.Debug),
     "print_room"  to listOf(SettingsSub.Profile, SettingsSub.Notifications),
     "truck_mover" to listOf(SettingsSub.Profile, SettingsSub.Notifications),
     "trainee"     to listOf(SettingsSub.Profile, SettingsSub.Notifications),
@@ -72,6 +72,7 @@ fun SettingsScreen(profile: UserProfile, resetCounter: Int = 0) {
             SettingsSub.GlobalMsg     -> SubScreenShell("🌐 Global Message",   Green500, { activeSub = null }) { GlobalMessagesScreen(profile) }
             SettingsSub.Backup        -> SubScreenShell("💾 Backup",           Purple500, { activeSub = null }) { BackupScreen() }
             SettingsSub.ApiMonitor    -> SubScreenShell("🔌 API Monitor",      Color(0xFF06B6D4), { activeSub = null }) { ApiMonitorScreen() }
+            SettingsSub.DataReset     -> SubScreenShell("⚠️ Data Reset",        Color(0xFFEF4444), { activeSub = null }) { DataResetScreen() }
             SettingsSub.Debug         -> SubScreenShell("🐛 Debug Logs",       Red500,   { activeSub = null }) { com.badger.trucks.ui.admin.DebugScreen() }
         }
     }
@@ -122,6 +123,7 @@ private fun settingsDef(s: SettingsSub): SDef = when (s) {
     SettingsSub.GlobalMsg     -> SDef("🌐", "Global Message",     "Broadcast to all users",                Green500)
     SettingsSub.Backup        -> SDef("💾", "Backup",             "Database backup & restore",             Purple500)
     SettingsSub.ApiMonitor    -> SDef("🔌", "API Monitor",        "Live debug & event log",                Color(0xFF06B6D4))
+    SettingsSub.DataReset     -> SDef("⚠️", "Data Reset",         "Reset print room, preshift & movement", Color(0xFFEF4444))
     SettingsSub.Debug         -> SDef("🐛", "Debug Logs",         "App diagnostics & logs",               Red500)
 }
 
