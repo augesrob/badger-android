@@ -23,6 +23,9 @@ object RemoteLogger {
     private var deviceName: String = "unknown"
     private var initialized = false
 
+    // Runtime flag — set from NotificationPrefsStore on init and when toggled in DebugScreen
+    @Volatile var remoteEnabled: Boolean = false
+
     data class LogEntry(val level: String, val tag: String, val message: String, val time: String)
 
     // In-memory ring buffer — last 200 entries, visible in DebugScreen without network
@@ -36,6 +39,9 @@ object RemoteLogger {
         deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown"
         deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
         initialized = true
+        // Load saved preference (default OFF to save egress)
+        remoteEnabled = context.getSharedPreferences("badger_notif_prefs", Context.MODE_PRIVATE)
+            .getBoolean("remote_logging_enabled", false)
     }
 
     fun log(level: String, tag: String, message: String) {
@@ -45,9 +51,9 @@ object RemoteLogger {
 
         Log.d("RemoteLogger", "[$level] $tag: $message")
 
-        // Only write WARN and ERROR to Supabase to avoid egress from constant INFO logs.
-        // INFO/DEBUG are available locally in DebugScreen via the in-memory buffer.
-        if (!initialized) return
+        // Only write to Supabase when remote logging is explicitly ON.
+        // INFO/DEBUG are always available locally in DebugScreen via the in-memory buffer.
+        if (!initialized || !remoteEnabled) return
         if (level != "E" && level != "W") return
 
         val dbLevel = when (level) { "E" -> "ERROR"; "W" -> "WARN"; else -> level }

@@ -46,6 +46,9 @@ object NotificationPrefsStore {
     const val AUDIO_FOCUS_DUCK      = "duck"
     const val AUDIO_FOCUS_OFF       = "off"
 
+    // Remote debug logging — when OFF, logs stay local only (saves Supabase egress)
+    const val KEY_REMOTE_LOGGING = "remote_logging_enabled"
+
     // Volume boost level
     const val KEY_VOLUME_BOOST = "volume_boost"
     const val VOLUME_BOOST_OFF    = "off"
