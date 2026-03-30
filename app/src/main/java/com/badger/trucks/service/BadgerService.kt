@@ -183,6 +183,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             ttsReady = true
+            // Attach LoudnessEnhancer to the real TTS audio session now that TTS is ready
+            applyVolumeBoost()
             speak("Badger live monitoring active")
         }
     }
@@ -334,30 +336,48 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun applyVolumeBoost() {
         val level = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
         val am = audioManager ?: return
-        val maxMusic = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+
+        // Always release previous enhancer first
+        loudnessEnhancer?.release()
+        loudnessEnhancer = null
+
         when (level) {
             NotificationPrefsStore.VOLUME_BOOST_OFF -> {
-                loudnessEnhancer?.enabled = false
-                loudnessEnhancer?.release()
-                loudnessEnhancer = null
+                Log.d("BadgerService", "VolumeBoost: OFF")
             }
             else -> {
+                // Max out system volume so boost has full headroom
+                val maxMusic = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic, 0)
+
                 val gainMb = when (level) {
-                    NotificationPrefsStore.VOLUME_BOOST_LOW    -> 400
-                    NotificationPrefsStore.VOLUME_BOOST_MEDIUM -> 800
-                    NotificationPrefsStore.VOLUME_BOOST_MAX    -> 1200
+                    NotificationPrefsStore.VOLUME_BOOST_LOW    -> 400   // +4 dB
+                    NotificationPrefsStore.VOLUME_BOOST_MEDIUM -> 800   // +8 dB
+                    NotificationPrefsStore.VOLUME_BOOST_MAX    -> 1200  // +12 dB
                     else -> 0
                 }
+
+                // Attach to TTS audio session if available, fall back to global mix (0)
+                val sessionId = if (ttsReady) tts?.audioSessionId ?: 0 else 0
                 try {
-                    loudnessEnhancer?.release()
-                        loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(0).apply {
+                    loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
                         setTargetGain(gainMb)
                         enabled = true
                     }
-                    Log.d("BadgerService", "VolumeBoost: $level (+${gainMb/100}dB)")
+                    Log.d("BadgerService", "VolumeBoost: $level (+${gainMb / 100}dB) session=$sessionId")
+                    RemoteLogger.i("BadgerService", "VolumeBoost applied: $level session=$sessionId")
                 } catch (e: Exception) {
-                    Log.w("BadgerService", "VolumeBoost failed: ${e.message}")
+                    Log.w("BadgerService", "VolumeBoost failed (session=$sessionId): ${e.message}")
+                    // Try again with global output mix
+                    try {
+                        loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(0).apply {
+                            setTargetGain(gainMb)
+                            enabled = true
+                        }
+                        Log.d("BadgerService", "VolumeBoost fallback: global mix session 0")
+                    } catch (e2: Exception) {
+                        Log.w("BadgerService", "VolumeBoost fallback also failed: ${e2.message}")
+                    }
                 }
             }
         }
@@ -367,6 +387,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
         if (ttsEnabled && ttsReady && ttsOn) {
+
+            // If boost is active, ensure stream volume is maxed before every speak
+            val boostLevel = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
+            if (boostLevel != NotificationPrefsStore.VOLUME_BOOST_OFF) {
+                val am = audioManager
+                if (am != null) {
+                    val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+                }
+            }
 
             val uttId = "badger_${System.currentTimeMillis()}"
             requestAudioFocus()
