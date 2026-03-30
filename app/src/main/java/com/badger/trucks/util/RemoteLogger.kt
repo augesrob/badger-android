@@ -44,8 +44,13 @@ object RemoteLogger {
         while (buffer.size > MAX_BUFFER) buffer.pollFirst()
 
         Log.d("RemoteLogger", "[$level] $tag: $message")
+
+        // Only write WARN and ERROR to Supabase to avoid egress from constant INFO logs.
+        // INFO/DEBUG are available locally in DebugScreen via the in-memory buffer.
         if (!initialized) return
-        val dbLevel = when (level) { "I" -> "INFO"; "E" -> "ERROR"; "W" -> "WARN"; "D" -> "DEBUG"; else -> level }
+        if (level != "E" && level != "W") return
+
+        val dbLevel = when (level) { "E" -> "ERROR"; "W" -> "WARN"; else -> level }
         scope.launch {
             try {
                 BadgerApp.supabase.postgrest["debug_logs"].insert(
