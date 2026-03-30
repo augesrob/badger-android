@@ -41,7 +41,9 @@ private val EVENT_ITEMS = listOf(
 private val CHANNEL_ITEMS = listOf(
     NotifItem(NotificationPrefsStore.KEY_CHANNEL_APP, Icons.Default.Notifications,   "Push Notifications",   "Show heads-up alerts on your device"),
     NotifItem(NotificationPrefsStore.KEY_CHANNEL_TTS, Icons.Default.RecordVoiceOver, "Text-to-Speech",       "Announce changes aloud via TTS"),
-    NotifItem(NotificationPrefsStore.KEY_SHOW_PTT,    Icons.Default.Radio,           "Push-to-Talk Button",  "Show PTT button on Live Movement"),
+    NotifItem(NotificationPrefsStore.KEY_SHOW_PTT,    Icons.Default.Radio,           "Push-to-Talk Button",  "Show PTT radio button on Live Movement"),
+    NotifItem(NotificationPrefsStore.KEY_SHOW_MIC,    Icons.Default.Mic,             "Voice Command Button", "Show mic button for voice commands"),
+    NotifItem(NotificationPrefsStore.KEY_SHOW_FIXALL, Icons.Default.Build,           "Wrench / Restart",     "Show wrench button to restart the service"),
 )
 
 @Composable
