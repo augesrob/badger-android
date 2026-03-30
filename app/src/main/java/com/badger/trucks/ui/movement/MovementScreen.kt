@@ -195,7 +195,8 @@ fun MovementScreen() {
     doorGroups.replaceAll { _, list ->
         list.sortedWith(compareBy({ truckToDoor[it.truckNumber]?.batch }, { truckToDoor[it.truckNumber]?.order })).toMutableList()
     }
-    val sortedDoors = doors.map { it.doorName }.filter { doorGroups.containsKey(it) }
+    // Always show all doors — even empty ones (no trucks). Empty doors show their status and "No trucks".
+    val sortedDoors = doors.map { it.doorName }
 
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
