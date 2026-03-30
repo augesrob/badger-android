@@ -518,9 +518,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 Log.d("BadgerService", "Realtime subscribed — status=$status")
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK — channel status=$status")
 
-                // Heartbeat: poll every 60s — detects changes if realtime events are missed
+                // Heartbeat: poll every 5min — realtime WebSocket handles all live updates,
+                // this only catches changes if realtime silently drops
                 while (true) {
-                    delay(60_000L)
+                    delay(5 * 60_000L)
                     val currentStatus = channel.status.value
                     if (currentStatus != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
                         Log.w("BadgerService", "Realtime channel dropped (status=$currentStatus), reconnecting...")
