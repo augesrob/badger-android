@@ -589,30 +589,46 @@ fun DoorSection(door: LoadingDoor?, doorName: String, trucks: List<LiveMovement>
                     }
                 }
             }
-            Row(modifier = Modifier.fillMaxWidth().clickable { onTruckTap(t) }.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.width(60.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.width(3.dp).height(20.dp).background(
-                            try { Color(android.graphics.Color.parseColor(t.statusColor ?: "#6b7280")) } catch (_: Exception) { MutedText }
-                        ))
-                        Spacer(Modifier.width(4.dp))
-                        Text(t.truckNumber, fontWeight = FontWeight.ExtraBold, color = Amber500, fontSize = 13.sp)
+            Column(
+                modifier = Modifier.fillMaxWidth().clickable { onTruckTap(t) }
+            ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.width(60.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(3.dp).height(20.dp).background(
+                                try { Color(android.graphics.Color.parseColor(t.statusColor ?: "#6b7280")) } catch (_: Exception) { MutedText }
+                            ))
+                            Spacer(Modifier.width(4.dp))
+                            Text(t.truckNumber, fontWeight = FontWeight.ExtraBold, color = Amber500, fontSize = 13.sp)
+                        }
+                        if (trailerNum != null) Text("TR:$trailerNum", color = Purple400, fontSize = 9.sp, modifier = Modifier.padding(start = 7.dp))
                     }
-                    if (trailerNum != null) Text("TR:$trailerNum", color = Purple400, fontSize = 9.sp, modifier = Modifier.padding(start = 7.dp))
-                }
-                Text(di?.route ?: "", Modifier.width(30.dp), color = MutedText, fontSize = 11.sp)
-                Column(Modifier.width(50.dp)) {
-                    Text(loc, color = LightText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-                    if (behind != null) Text("↑$behind", color = MutedText, fontSize = 8.sp)
-                }
-                Box(Modifier.weight(1f)) {
-                    Surface(shape = RoundedCornerShape(4.dp),
-                        color = try { Color(android.graphics.Color.parseColor(t.statusColor ?: "#6b7280")) } catch (_: Exception) { DarkCard }) {
-                        Text(t.statusName ?: "—", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text(di?.route ?: "", Modifier.width(30.dp), color = MutedText, fontSize = 11.sp)
+                    Column(Modifier.width(50.dp)) {
+                        Text(loc, color = LightText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                        if (behind != null) Text("↑$behind", color = MutedText, fontSize = 8.sp)
                     }
+                    Box(Modifier.weight(1f)) {
+                        Surface(shape = RoundedCornerShape(4.dp),
+                            color = try { Color(android.graphics.Color.parseColor(t.statusColor ?: "#6b7280")) } catch (_: Exception) { DarkCard }) {
+                            Text(t.statusName ?: "—", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Text(if ((di?.pods ?: 0) > 0) di?.pods.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
+                    Text(if ((di?.pallets ?: 0) > 0) di?.pallets.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
                 }
-                Text(if ((di?.pods ?: 0) > 0) di?.pods.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
-                Text(if ((di?.pallets ?: 0) > 0) di?.pallets.toString() else "", Modifier.width(35.dp), color = LightText, fontSize = 11.sp, textAlign = TextAlign.Center)
+                // Notes row — shown below truck when notes exist
+                if (!di?.notes.isNullOrBlank()) {
+                    Text(
+                        text = "📝 ${di!!.notes}",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 19.dp, end = 12.dp, bottom = 5.dp),
+                        color = Color(0xFFFCD34D),
+                        fontSize = 10.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                    )
+                }
             }
             if (idx < trucks.size - 1) Divider(color = DarkBorder.copy(alpha = 0.2f))
         }
