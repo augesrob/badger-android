@@ -74,9 +74,18 @@ object BadgerRepo {
     suspend fun upsertPrintroomEntry(entry: PrintroomEntry): PrintroomEntry {
         // Strip joined fields — only send columns that exist in the table
         val clean = entry.copy(loadingDoor = null)
-        return client.postgrest["printroom_entries"]
-            .upsert(clean) { select() }
-            .decodeSingle()
+        return if (clean.id == 0) {
+            // New entry — use insert so Supabase generates the id
+            // (upsert with id=0 hits a conflict or inserts a bogus row)
+            client.postgrest["printroom_entries"]
+                .insert(clean) { select() }
+                .decodeSingle()
+        } else {
+            // Existing entry — update in place
+            client.postgrest["printroom_entries"]
+                .upsert(clean) { select() }
+                .decodeSingle()
+        }
     }
 
     suspend fun deletePrintroomEntry(id: Int) {
