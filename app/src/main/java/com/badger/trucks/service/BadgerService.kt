@@ -357,27 +357,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     else -> 0
                 }
 
-                // Attach to TTS audio session if available, fall back to global mix (0)
-                val sessionId = if (ttsReady) tts?.audioSessionId ?: 0 else 0
+                // LoudnessEnhancer on session 0 = global output mix, which covers TTS output
                 try {
-                    loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(sessionId).apply {
+                    loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(0).apply {
                         setTargetGain(gainMb)
                         enabled = true
                     }
-                    Log.d("BadgerService", "VolumeBoost: $level (+${gainMb / 100}dB) session=$sessionId")
-                    RemoteLogger.i("BadgerService", "VolumeBoost applied: $level session=$sessionId")
+                    Log.d("BadgerService", "VolumeBoost: $level (+${gainMb / 100}dB)")
+                    RemoteLogger.i("BadgerService", "VolumeBoost applied: $level +${gainMb / 100}dB")
                 } catch (e: Exception) {
-                    Log.w("BadgerService", "VolumeBoost failed (session=$sessionId): ${e.message}")
-                    // Try again with global output mix
-                    try {
-                        loudnessEnhancer = android.media.audiofx.LoudnessEnhancer(0).apply {
-                            setTargetGain(gainMb)
-                            enabled = true
-                        }
-                        Log.d("BadgerService", "VolumeBoost fallback: global mix session 0")
-                    } catch (e2: Exception) {
-                        Log.w("BadgerService", "VolumeBoost fallback also failed: ${e2.message}")
-                    }
+                    Log.w("BadgerService", "VolumeBoost failed: ${e.message}")
                 }
             }
         }
