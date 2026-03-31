@@ -519,16 +519,19 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 Log.d("BadgerService", "Realtime subscribed — status=$status")
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK — channel status=$status")
 
-                // Observe channel status — instantly reconnect on drop without waiting for heartbeat
+                // Observe channel status — reconnect on any non-subscribed/non-subscribing state
+                // Use name comparison to avoid referencing enum values that may not exist in this version
                 channel.status.onEach { channelStatus ->
-                    if (channelStatus == io.github.jan.supabase.realtime.RealtimeChannel.Status.CLOSED ||
-                        channelStatus == io.github.jan.supabase.realtime.RealtimeChannel.Status.ERRORED) {
-                        Log.w("BadgerService", "Realtime channel status changed to $channelStatus, reconnecting...")
-                        RemoteLogger.w("BadgerService", "Realtime dropped ($channelStatus), reconnecting instantly...")
-                        try { channel.unsubscribe() } catch (_: Exception) {}
-                        delay(2_000)
-                        startRealtimeSync()
-                        return@onEach
+                    val name = channelStatus.name
+                    if (name != "SUBSCRIBED" && name != "SUBSCRIBING") {
+                        Log.w("BadgerService", "Realtime channel status: $name — scheduling reconnect")
+                        RemoteLogger.w("BadgerService", "Realtime channel status: $name — reconnecting in 3s")
+                        delay(3_000)
+                        if (channel.status.value.name != "SUBSCRIBED") {
+                            try { channel.unsubscribe() } catch (_: Exception) {}
+                            startRealtimeSync()
+                            return@onEach
+                        }
                     }
                 }.launchIn(scope)
 
@@ -536,9 +539,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 while (true) {
                     delay(30_000L)
                     val currentStatus = channel.status.value
-                    if (currentStatus != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
-                        Log.w("BadgerService", "Heartbeat: channel not subscribed (status=$currentStatus), reconnecting...")
-                        RemoteLogger.w("BadgerService", "Heartbeat reconnect: status=$currentStatus")
+                    if (currentStatus.name != "SUBSCRIBED") {
+                        Log.w("BadgerService", "Heartbeat: channel not subscribed (status=${currentStatus.name}), reconnecting...")
+                        RemoteLogger.w("BadgerService", "Heartbeat reconnect: status=${currentStatus.name}")
                         try { channel.unsubscribe() } catch (_: Exception) {}
                         startRealtimeSync()
                         return@launch
