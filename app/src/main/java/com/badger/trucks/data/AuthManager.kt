@@ -2,6 +2,9 @@ package com.badger.trucks.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import com.badger.trucks.BadgerApp
 import com.badger.trucks.util.RemoteLogger
 import io.github.jan.supabase.auth.auth
@@ -18,6 +21,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.IvParameterSpec
 
 /**
  * App-wide auth + profile state for Badger Access.
@@ -25,9 +33,12 @@ import kotlinx.coroutines.launch
  */
 object AuthManager {
 
-    private const val PREFS      = "badger_access_auth"
-    private const val KEY_EMAIL  = "saved_email"
-    private const val KEY_REMEMBER = "remember_me"
+    private const val PREFS          = "badger_access_auth"
+    private const val KEY_EMAIL      = "saved_email"
+    private const val KEY_REMEMBER   = "remember_me"
+    private const val KEY_PASS_ENC   = "saved_pass_enc"   // AES-encrypted password (base64)
+    private const val KEY_PASS_IV    = "saved_pass_iv"    // AES IV (base64)
+    private const val KEYSTORE_ALIAS = "badger_biometric_key"
 
     sealed class AuthState {
         object Loading   : AuthState()
@@ -35,21 +46,18 @@ object AuthManager {
         data class LoggedIn(val profile: UserProfile) : AuthState()
     }
 
-    /** Fired when the user's role changes while they're logged in. */
     sealed class ProfileEvent {
-        /** Role changed — tabs may need to update. */
         data class RoleChanged(val oldRole: String, val newRole: String) : ProfileEvent()
-        /** Permissions changed enough to require restart notice. */
         data class PermissionsChanged(val message: String) : ProfileEvent()
     }
 
-    private val _state        = MutableStateFlow<AuthState>(AuthState.Loading)
+    private val _state         = MutableStateFlow<AuthState>(AuthState.Loading)
     val  state: StateFlow<AuthState> = _state.asStateFlow()
 
     private val _profileEvents = MutableSharedFlow<ProfileEvent>(extraBufferCapacity = 4)
     val profileEvents: SharedFlow<ProfileEvent> = _profileEvents.asSharedFlow()
 
-    val profile   get() = (_state.value as? AuthState.LoggedIn)?.profile
+    val profile    get() = (_state.value as? AuthState.LoggedIn)?.profile
     val isLoggedIn get() = _state.value is AuthState.LoggedIn
 
     private var realtimeJob: Job? = null
@@ -67,6 +75,13 @@ object AuthManager {
 
     suspend fun init() {
         try {
+            // Proactively refresh JWT — prevents 1h token expiry from logging users out
+            try {
+                BadgerApp.supabase.auth.refreshCurrentSession()
+                RemoteLogger.i("AuthManager", "JWT refreshed OK")
+            } catch (e: Exception) {
+                RemoteLogger.w("AuthManager", "JWT refresh skipped: ${e.message}")
+            }
             val user = BadgerApp.supabase.auth.currentUserOrNull()
             if (user != null) {
                 val p = BadgerRepo.getCurrentProfile()
@@ -105,6 +120,61 @@ object AuthManager {
         RemoteLogger.i("AuthManager", "Signed out")
     }
 
+    // ── Biometric credential storage (Android Keystore AES) ──────────────────
+
+    /** Call after successful password sign-in to store credentials for biometric unlock. */
+    fun saveEncryptedPassword(context: Context, password: String) {
+        try {
+            val key    = getOrCreateKey()
+            val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val encrypted = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
+            prefs(context).edit()
+                .putString(KEY_PASS_ENC, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .putString(KEY_PASS_IV,  Base64.encodeToString(cipher.iv,  Base64.NO_WRAP))
+                .apply()
+            RemoteLogger.i("AuthManager", "Password encrypted and saved for biometric")
+        } catch (e: Exception) {
+            RemoteLogger.w("AuthManager", "Failed to save encrypted password: ${e.message}")
+        }
+    }
+
+    /** Returns decrypted password, or null if nothing stored or decryption fails. */
+    fun getDecryptedPassword(context: Context): String? {
+        return try {
+            val p     = prefs(context)
+            val encB  = Base64.decode(p.getString(KEY_PASS_ENC, null) ?: return null, Base64.NO_WRAP)
+            val iv    = Base64.decode(p.getString(KEY_PASS_IV,  null) ?: return null, Base64.NO_WRAP)
+            val key   = getOrCreateKey()
+            val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding")
+            cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
+            String(cipher.doFinal(encB), Charsets.UTF_8)
+        } catch (e: Exception) {
+            RemoteLogger.w("AuthManager", "Failed to decrypt password: ${e.message}")
+            null
+        }
+    }
+
+    fun hasStoredCredentials(context: Context): Boolean {
+        val p = prefs(context)
+        return p.contains(KEY_PASS_ENC) && p.getString(KEY_EMAIL, "").orEmpty().isNotBlank()
+    }
+
+    private fun getOrCreateKey(): SecretKey {
+        val ks = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
+        ks.getKey(KEYSTORE_ALIAS, null)?.let { return it as SecretKey }
+        val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        kg.init(
+            KeyGenParameterSpec.Builder(KEYSTORE_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                .setUserAuthenticationRequired(false) // key available without auth so we can decrypt after biometric
+                .build()
+        )
+        return kg.generateKey()
+    }
+
     // ── Real-time profile watch ───────────────────────────────────────────────
 
     private fun startProfileWatch(userId: String) {
@@ -112,20 +182,14 @@ object AuthManager {
         realtimeJob = CoroutineScope(Dispatchers.IO).launch {
             try {
                 val channel = BadgerApp.supabase.channel("profile-watch-$userId")
-
                 val flow = channel.postgresChangeFlow<PostgresAction.Update>("public") {
                     table = "profiles"
                 }
-
                 channel.subscribe()
                 RemoteLogger.i("AuthManager", "Profile realtime watch started for $userId")
-
                 flow.collect { action ->
-                    // Filter client-side — only react to our own profile row
                     val rowId = action.record["id"]?.toString()?.trim('"')
-                    if (rowId == userId) {
-                        handleProfileUpdate()
-                    }
+                    if (rowId == userId) handleProfileUpdate()
                 }
             } catch (e: Exception) {
                 RemoteLogger.w("AuthManager", "Profile watch error: ${e.message}")
@@ -144,11 +208,9 @@ object AuthManager {
             val updatedProfile = BadgerRepo.getCurrentProfile() ?: return
             val oldRole = currentProfile.role
             val newRole = updatedProfile.role
-
             _state.value = AuthState.LoggedIn(updatedProfile)
-
             if (oldRole != newRole) {
-                RemoteLogger.i("AuthManager", "Role changed: $oldRole → $newRole")
+                RemoteLogger.i("AuthManager", "Role changed: $oldRole -> $newRole")
                 _profileEvents.emit(ProfileEvent.RoleChanged(oldRole, newRole))
             }
         } catch (e: Exception) {
@@ -165,7 +227,7 @@ object AuthManager {
             .apply()
     }
 
-    fun getSavedEmail(context: Context): String = prefs(context).getString(KEY_EMAIL, "") ?: ""
+    fun getSavedEmail(context: Context): String  = prefs(context).getString(KEY_EMAIL, "") ?: ""
     fun getRememberMe(context: Context): Boolean = prefs(context).getBoolean(KEY_REMEMBER, false)
 
     private fun prefs(context: Context): SharedPreferences =

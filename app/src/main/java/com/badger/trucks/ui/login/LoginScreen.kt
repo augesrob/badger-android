@@ -59,7 +59,15 @@ fun LoginScreen() {
         loading = true; errorMsg = null
         scope.launch {
             AuthManager.signIn(email.trim(), password)
-                .onSuccess { if (rememberMe) AuthManager.saveEmail(context, email.trim(), true) else AuthManager.saveEmail(context, "", false) }
+                .onSuccess {
+                    if (rememberMe) {
+                        AuthManager.saveEmail(context, email.trim(), true)
+                        // Encrypt and store password so biometric can re-sign-in later
+                        AuthManager.saveEncryptedPassword(context, password)
+                    } else {
+                        AuthManager.saveEmail(context, "", false)
+                    }
+                }
                 .onFailure { e ->
                     errorMsg = when {
                         e.message?.contains("Invalid login", true) == true -> "Incorrect email or password"
@@ -73,15 +81,38 @@ fun LoginScreen() {
 
     fun doBiometric() {
         val activity = context as? FragmentActivity ?: return
+        val savedEmail = AuthManager.getSavedEmail(context)
+        if (savedEmail.isBlank() || !AuthManager.hasStoredCredentials(context)) {
+            errorMsg = "Sign in with password first, then enable Remember Me"
+            return
+        }
         val prompt = BiometricPrompt(activity, ContextCompat.getMainExecutor(context),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    val saved = AuthManager.getSavedEmail(context)
-                    if (saved.isBlank()) { errorMsg = "Sign in with password first, then enable Remember Me"; return }
                     scope.launch {
                         loading = true
+                        errorMsg = null
+                        // Try JWT refresh first (fast path — session still valid)
                         AuthManager.init()
-                        if (!AuthManager.isLoggedIn) errorMsg = "Session expired — sign in with password"
+                        if (AuthManager.isLoggedIn) {
+                            loading = false
+                            return@launch
+                        }
+                        // Session expired — re-sign-in using stored encrypted credentials
+                        val storedPass = AuthManager.getDecryptedPassword(context)
+                        if (storedPass == null) {
+                            errorMsg = "Stored credentials not found — sign in with password"
+                            loading = false
+                            return@launch
+                        }
+                        AuthManager.signIn(savedEmail, storedPass)
+                            .onSuccess {
+                                // Refresh stored credentials on successful re-auth
+                                AuthManager.saveEncryptedPassword(context, storedPass)
+                            }
+                            .onFailure {
+                                errorMsg = "Biometric sign-in failed — sign in with password"
+                            }
                         loading = false
                     }
                 }
