@@ -124,13 +124,9 @@ fun MovementScreen() {
         })
     }
 
-    // Sync service StateFlow updates into local state
-    LaunchedEffect(serviceTrucks) {
-        if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks
-    }
-    LaunchedEffect(serviceDoors) {
-        if (serviceDoors.isNotEmpty()) localDoors = serviceDoors
-    }
+    // Always sync service StateFlow into local state whenever it updates
+    LaunchedEffect(serviceTrucks) { if (serviceTrucks.isNotEmpty()) localTrucks = serviceTrucks }
+    LaunchedEffect(serviceDoors)  { if (serviceDoors.isNotEmpty())  localDoors  = serviceDoors  }
 
     fun loadData() {
         scope.launch {
@@ -147,9 +143,29 @@ fun MovementScreen() {
         }
     }
 
+    // Initial load + screen-level realtime for printroom (not covered by BadgerService)
     LaunchedEffect(Unit) {
         loadData()
-        // Service handles realtime updates via StateFlow — no polling needed here
+        try {
+            val channel = BadgerRepo.realtimeChannel("movement-screen-printroom-${System.currentTimeMillis()}")
+            channel.postgresChangeFlow<PostgresAction>("public") { table = "printroom_entries" }
+                .collect { scope.launch {
+                    printroom = BadgerRepo.getPrintroomEntries()
+                    staging   = BadgerRepo.getStagingDoors()
+                }}
+            channel.subscribe()
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    // Screen-level poll every 15s — catches any service StateFlow updates missed while screen was off
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000L)
+            val fresh = BadgerRepo.getLiveMovement()
+            if (fresh.isNotEmpty()) localTrucks = fresh
+            val freshDoors = BadgerRepo.getLoadingDoors()
+            if (freshDoors.isNotEmpty()) localDoors = freshDoors
+        }
     }
 
     if (loading) {
