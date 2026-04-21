@@ -211,16 +211,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            // Route TTS through STREAM_VOICE_CALL — this stream has system-level priority
-            // and cannot be suppressed by TikTok or other media apps that ignore audio focus
-            tts?.setSpeechRate(1.0f)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                val params = android.os.Bundle().apply {
-                    putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_VOICE_CALL)
-                }
-                // Store params for use in speak()
-                ttsParams = params
-            }
+            // Use default TTS stream (STREAM_MUSIC) so LoudnessEnhancer and volume boost work.
+            // STREAM_VOICE_CALL is quieter and ignores LoudnessEnhancer — don't use it.
+            ttsParams = null
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onError(utteranceId: String?) {
@@ -256,9 +249,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attrs = AudioAttributes.Builder()
-                // USAGE_VOICE_COMMUNICATION gives TTS system-level priority that
-                // TikTok and most media apps cannot override
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                // NAVIGATION_GUIDANCE keeps audio on speaker/headphones (not earpiece)
+                // while still getting high-priority exclusive focus over media apps
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
             audioFocusRequest = AudioFocusRequest.Builder(focusType)
@@ -434,9 +427,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         if (ttsEnabled && ttsReady && ttsOn) {
             val boostLevel = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
             if (boostLevel != NotificationPrefsStore.VOLUME_BOOST_OFF) {
-                // Max both streams so TTS cuts through regardless of which one TTS engine uses
                 audioManager?.let { am ->
-                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0)
                     am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
                 }
             }
