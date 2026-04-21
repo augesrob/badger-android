@@ -104,6 +104,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private val mainHandler  = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var ttsReady     = false
+    private var ttsParams: android.os.Bundle? = null
     // Callbacks keyed by utterance ID — set once at TTS init, never replaced per-speak
     private val ttsCallbacks = mutableMapOf<String, () -> Unit>()
     private var wakeLock: PowerManager.WakeLock? = null
@@ -210,8 +211,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
-            // Set one persistent listener — replacing it per-speak() call drops callbacks
-            // for already-queued utterances and causes TTS to silently stop
+            // Route TTS through STREAM_VOICE_CALL — this stream has system-level priority
+            // and cannot be suppressed by TikTok or other media apps that ignore audio focus
+            tts?.setSpeechRate(1.0f)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                val params = android.os.Bundle().apply {
+                    putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_VOICE_CALL)
+                }
+                // Store params for use in speak()
+                ttsParams = params
+            }
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onError(utteranceId: String?) {
@@ -239,28 +248,29 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     private fun requestAudioFocus() {
         val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
-            NotificationPrefsStore.AUDIO_FOCUS_TRANSIENT)
+            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE) // default to exclusive — TikTok ignores transient
         if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
         val focusType = when (mode) {
-            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
-            NotificationPrefsStore.AUDIO_FOCUS_DUCK      -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            else                                          -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            NotificationPrefsStore.AUDIO_FOCUS_DUCK -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            else -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE // transient + exclusive both use exclusive
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                // USAGE_VOICE_COMMUNICATION gives TTS system-level priority that
+                // TikTok and most media apps cannot override
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
             audioFocusRequest = AudioFocusRequest.Builder(focusType)
                 .setAudioAttributes(attrs)
                 .setOnAudioFocusChangeListener(audioFocusListener)
                 .setAcceptsDelayedFocusGain(false)
-                .setWillPauseWhenDucked(mode == NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE)
+                .setWillPauseWhenDucked(true) // force pause rather than duck
                 .build()
                 .also { audioManager?.requestAudioFocus(it) }
         } else {
             @Suppress("DEPRECATION")
-            audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_MUSIC, focusType)
+            audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_VOICE_CALL, focusType)
         }
     }
 
@@ -424,13 +434,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         if (ttsEnabled && ttsReady && ttsOn) {
             val boostLevel = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
             if (boostLevel != NotificationPrefsStore.VOLUME_BOOST_OFF) {
-                val maxVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: return
-                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+                // Max both streams so TTS cuts through regardless of which one TTS engine uses
+                audioManager?.let { am ->
+                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0)
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
+                }
             }
             val uttId = "badger_${System.currentTimeMillis()}"
             if (onDone != null) ttsCallbacks[uttId] = onDone
             requestAudioFocus()
-            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
+            tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
         } else {
             onDone?.invoke()
         }
