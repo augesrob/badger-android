@@ -105,8 +105,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady     = false
     private var ttsParams: android.os.Bundle? = null
-    // Callbacks keyed by utterance ID — set once at TTS init, never replaced per-speak
     private val ttsCallbacks = mutableMapOf<String, () -> Unit>()
+
+    // Keep references so we can cleanly unsubscribe on restart
+    private var realtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
+    private var chatRealtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
@@ -199,6 +202,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _pttIncoming.value  = false
         pttManager?.destroy()
         commandRecognizer?.destroy()
+        try { realtimeChannel?.unsubscribe() } catch (_: Exception) {}
+        try { chatRealtimeChannel?.unsubscribe() } catch (_: Exception) {}
+        realtimeChannel = null
+        chatRealtimeChannel = null
         tts?.stop(); tts?.shutdown()
         ttsCallbacks.clear()
         abandonAudioFocus()
@@ -457,12 +464,21 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun startRealtimeSync() {
         scope.launch {
             try {
+                // Clean up previous channels before creating new ones.
+                // Calling postgresChangeFlow on an already-subscribed channel throws
+                // IllegalStateException which crashes the service on restart.
+                try { realtimeChannel?.unsubscribe() } catch (_: Exception) {}
+                try { chatRealtimeChannel?.unsubscribe() } catch (_: Exception) {}
+                realtimeChannel = null
+                chatRealtimeChannel = null
+
                 BadgerRepo.getLiveMovement().forEach { knownStatuses[it.truckNumber] = it.statusName }
                 BadgerRepo.getLoadingDoors().forEach { knownDoorStatus[it.doorName]  = it.doorStatus }
                 BadgerRepo.getStagingDoors().forEach { knownPreshift[it.id]          = Pair(it.inFront, it.inBack) }
 
                 // Timestamped channel name avoids conflicts when reconnecting
                 val channel = BadgerRepo.realtimeChannel("badger-service-${System.currentTimeMillis()}")
+                realtimeChannel = channel
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
                     RemoteLogger.i("BadgerService", "Realtime event: live_movement ${it::class.simpleName}")
@@ -545,6 +561,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 // Track incoming chat messages for unread badge — separate channel
                 // so it subscribes independently of the main data channel
                 val chatChannel = BadgerRepo.realtimeChannel("badger-chat-${System.currentTimeMillis()}")
+                chatRealtimeChannel = chatChannel
                 chatChannel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
                     try {
                         val roomId   = action.record["room_id"]?.toString()?.trim('"')?.toIntOrNull() ?: return@onEach
