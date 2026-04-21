@@ -538,18 +538,20 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     } catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues refresh: ${'$'}{e.message}") }
                 }.launchIn(scope)
 
-                // Track incoming chat messages for unread badge
-                channel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
+                // Track incoming chat messages for unread badge — separate channel
+                // so it subscribes independently of the main data channel
+                val chatChannel = BadgerRepo.realtimeChannel("badger-chat-${System.currentTimeMillis()}")
+                chatChannel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
                     try {
-                        val roomId = action.record["room_id"]?.toString()?.trim('"')?.toIntOrNull() ?: return@onEach
+                        val roomId   = action.record["room_id"]?.toString()?.trim('"')?.toIntOrNull() ?: return@onEach
                         val senderId = action.record["sender_id"]?.toString()?.trim('"') ?: return@onEach
-                        val myId = BadgerRepo.currentUserId() ?: return@onEach
-                        // Don't count our own messages
+                        val myId     = BadgerRepo.currentUserId() ?: return@onEach
                         if (senderId == myId) return@onEach
                         incrementUnread(roomId)
                         RemoteLogger.i("BadgerService", "New chat message in room $roomId")
                     } catch (e: Exception) { Log.w("BadgerService", "Chat unread tracking: ${e.message}") }
                 }.launchIn(scope)
+                chatChannel.subscribe()
 
                 RemoteLogger.i("BadgerService", "Calling channel.subscribe()...")
                 channel.subscribe(blockUntilSubscribed = true)
