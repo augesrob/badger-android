@@ -46,8 +46,6 @@ class BadgerApp : Application() {
                             appContext.getSharedPreferences("badger_supabase_session", android.content.Context.MODE_PRIVATE)
                         )
                     )
-                    // Auto-refresh the access token before it expires (tokens last ~1 hour)
-                    autoRefreshToken = true
                 }
                 install(Storage)
                 install(Functions)
