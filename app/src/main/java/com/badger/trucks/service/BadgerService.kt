@@ -202,8 +202,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _pttIncoming.value  = false
         pttManager?.destroy()
         commandRecognizer?.destroy()
-        try { realtimeChannel?.unsubscribe() } catch (_: Exception) {}
-        try { chatRealtimeChannel?.unsubscribe() } catch (_: Exception) {}
+        // unsubscribe() is suspend — run in a short-lived scope before cancelling main scope
+        val cleanupScope = CoroutineScope(Dispatchers.IO)
+        cleanupScope.launch {
+            try { realtimeChannel?.unsubscribe() } catch (_: Exception) {}
+            try { chatRealtimeChannel?.unsubscribe() } catch (_: Exception) {}
+        }
         realtimeChannel = null
         chatRealtimeChannel = null
         tts?.stop(); tts?.shutdown()
