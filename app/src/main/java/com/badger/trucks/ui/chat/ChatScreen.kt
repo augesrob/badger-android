@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.badger.trucks.data.*
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.util.RemoteLogger
+import com.badger.trucks.service.BadgerService
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.launch
@@ -46,6 +48,9 @@ fun ChatScreen(profile: UserProfile) {
     var input        by remember { mutableStateOf("") }
     var loading      by remember { mutableStateOf(true) }
     var sending      by remember { mutableStateOf(false) }
+
+    val unreadCounts by BadgerService.unreadCounts.collectAsState()
+    val pendingRoom  by BadgerService.pendingRoomId.collectAsState()
 
     val activeRoom = rooms.find { it.id == activeRoomId }
 
@@ -103,6 +108,20 @@ fun ChatScreen(profile: UserProfile) {
         }
     }
 
+    // Auto-navigate to room that has a pending unread message
+    LaunchedEffect(pendingRoom, rooms) {
+        val target = pendingRoom ?: return@LaunchedEffect
+        if (rooms.any { it.id == target } && activeRoomId != target) {
+            activeRoomId = target
+            loadMessages(target)
+        }
+    }
+
+    // Mark active room as read whenever it's open
+    LaunchedEffect(activeRoomId) {
+        activeRoomId?.let { BadgerService.markRoomRead(it) }
+    }
+
     // Realtime subscription for active room
     LaunchedEffect(activeRoomId) {
         val roomId = activeRoomId ?: return@LaunchedEffect
@@ -134,21 +153,42 @@ fun ChatScreen(profile: UserProfile) {
             ) {
                 items(rooms) { room ->
                     val selected = room.id == activeRoomId
+                    val roomUnread = unreadCounts[room.id] ?: 0
                     Surface(
                         shape = RoundedCornerShape(20.dp),
                         color = if (selected) Amber500.copy(alpha = 0.15f) else DarkCard,
                         modifier = Modifier.clickable {
                             activeRoomId = room.id
                             scope.launch { loadMessages(room.id) }
+                            BadgerService.markRoomRead(room.id)
                         }
                     ) {
-                        Text(
-                            room.name,
+                        Row(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            color = if (selected) Amber500 else MutedText,
-                            fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                room.name,
+                                color = if (selected) Amber500 else MutedText,
+                                fontSize = 13.sp,
+                                fontWeight = if (selected || roomUnread > 0) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (roomUnread > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFFEF4444), CircleShape)
+                                        .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+                                        .padding(horizontal = 3.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        if (roomUnread > 99) "99+" else roomUnread.toString(),
+                                        color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

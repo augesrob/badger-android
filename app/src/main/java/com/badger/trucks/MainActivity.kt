@@ -17,8 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.foundation.shape.RoundedCornerShapeimport androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -169,6 +168,18 @@ fun BadgerAccessMain(profile: UserProfile) {
 
     var currentTab        by remember { mutableStateOf(startTab) }
     var showUpdateBanner  by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
+
+    // Unread chat badge from service
+    val unreadCounts by BadgerService.unreadCounts.collectAsState()
+    val totalUnread = unreadCounts.values.sum()
+
+    // Auto-navigate to Chat tab when a new message arrives and we're not already there
+    LaunchedEffect(totalUnread) {
+        if (totalUnread > 0 && currentTab != Tab.Chat) {
+            // Don't forcibly switch — just make the badge visible; user taps to go
+            // (switching automatically mid-work would be disruptive)
+        }
+    }
 
     // If role changes and current tab is no longer accessible, reset to first available
     LaunchedEffect(profile.role) {
@@ -322,13 +333,22 @@ fun BadgerAccessMain(profile: UserProfile) {
                 visibleTabs.forEach { tab ->
                     val active     = currentTab == tab
                     val tintColor  = if (tab.isLive) Green500 else Amber500
+                    val tabUnread  = if (tab == Tab.Chat) totalUnread else 0
 
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .clickable(remember { MutableInteractionSource() }, indication = null) {
-                                if (currentTab == tab) resetCounter++  // already on this tab — pop to root
+                                if (tab == Tab.Chat && tabUnread > 0) {
+                                    // Consume the pending room so ChatScreen auto-opens it
+                                    // (pendingRoomId is read in ChatScreen via collectAsState)
+                                }
+                                if (currentTab == tab) resetCounter++
                                 else currentTab = tab
+                                // Mark read when switching to Chat
+                                if (tab == Tab.Chat) {
+                                    BadgerService.pendingRoomId.value?.let { BadgerService.markRoomRead(it) }
+                                }
                             },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -338,7 +358,7 @@ fun BadgerAccessMain(profile: UserProfile) {
                                 .background(if (active) tintColor else Color.Transparent)
                         )
                         Spacer(Modifier.height(6.dp))
-                        // Emoji with subtle bg pill when active
+                        // Emoji with badge overlay
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(14.dp))
@@ -347,6 +367,22 @@ fun BadgerAccessMain(profile: UserProfile) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(tab.emoji, fontSize = if (tab.isLive) 20.sp else 17.sp)
+                            if (tabUnread > 0) {
+                                Box(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 6.dp, y = (-4).dp)
+                                        .background(Color(0xFFEF4444), CircleShape)
+                                        .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+                                        .padding(horizontal = 3.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        if (tabUnread > 99) "99+" else tabUnread.toString(),
+                                        color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
                         }
                         Text(
                             tab.label,

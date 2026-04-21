@@ -54,6 +54,10 @@ fun LoginScreen() {
                 BiometricManager.BIOMETRIC_SUCCESS
     }
 
+    val hasStoredCreds = remember { AuthManager.hasStoredCredentials(context) }
+    // If biometric is available and we have stored credentials, show biometric prompt by default
+    var showPasswordForm by remember { mutableStateOf(!biometricAvailable || !hasStoredCreds) }
+
     fun doSignIn() {
         if (email.isBlank() || password.isBlank()) { errorMsg = "Please enter your email and password"; return }
         loading = true; errorMsg = null
@@ -83,6 +87,7 @@ fun LoginScreen() {
         val activity = context as? FragmentActivity ?: return
         val savedEmail = AuthManager.getSavedEmail(context)
         if (savedEmail.isBlank() || !AuthManager.hasStoredCredentials(context)) {
+            showPasswordForm = true
             errorMsg = "Sign in with password first, then enable Remember Me"
             return
         }
@@ -117,10 +122,16 @@ fun LoginScreen() {
                     }
                 }
                 override fun onAuthenticationError(code: Int, msg: CharSequence) {
-                    if (code != BiometricPrompt.ERROR_USER_CANCELED && code != BiometricPrompt.ERROR_NEGATIVE_BUTTON)
+                    if (code != BiometricPrompt.ERROR_USER_CANCELED && code != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
                         errorMsg = "Biometric error: $msg"
+                    }
+                    // Show password form so user isn't stuck on a blank screen
+                    showPasswordForm = true
                 }
-                override fun onAuthenticationFailed() { errorMsg = "Fingerprint not recognized" }
+                override fun onAuthenticationFailed() {
+                    errorMsg = "Fingerprint not recognized"
+                    showPasswordForm = true
+                }
             })
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
@@ -129,6 +140,13 @@ fun LoginScreen() {
                 .setNegativeButtonText("Use Password")
                 .build()
         )
+    }
+
+    // Auto-trigger biometric prompt on first load if credentials are stored
+    LaunchedEffect(Unit) {
+        if (biometricAvailable && hasStoredCreds) {
+            doBiometric()
+        }
     }
 
     Box(Modifier.fillMaxSize().background(DarkBg), contentAlignment = Alignment.Center) {
@@ -140,63 +158,88 @@ fun LoginScreen() {
             Spacer(Modifier.height(40.dp))
             Text("🦡", fontSize = 56.sp, textAlign = TextAlign.Center)
             Text("Badger Access", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Amber500)
-            Text("Sign in to continue", fontSize = 13.sp, color = MutedText)
-            Spacer(Modifier.height(4.dp))
 
-            AnimatedVisibility(visible = errorMsg != null) {
-                Surface(color = Color(0xFF3A1A1A), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    Text(errorMsg ?: "", modifier = Modifier.padding(12.dp), color = Red500, fontSize = 13.sp)
-                }
-            }
-
-            OutlinedTextField(
-                value = email, onValueChange = { email = it; errorMsg = null },
-                label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
-                colors = fieldColors()
-            )
-
-            OutlinedTextField(
-                value = password, onValueChange = { password = it; errorMsg = null },
-                label = { Text("Password") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); doSignIn() }),
-                trailingIcon = {
-                    IconButton(onClick = { showPass = !showPass }) {
-                        Icon(if (showPass) Icons.Default.VisibilityOff else Icons.Default.Visibility, null, tint = MutedText)
+            // ── Biometric-first screen (stored creds + biometric available) ──
+            if (!showPasswordForm) {
+                Text("Sign in with your fingerprint", fontSize = 13.sp, color = MutedText)
+                Spacer(Modifier.height(12.dp))
+                AnimatedVisibility(visible = errorMsg != null) {
+                    Surface(color = Color(0xFF3A1A1A), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(errorMsg ?: "", modifier = Modifier.padding(12.dp), color = Red500, fontSize = 13.sp)
                     }
-                },
-                colors = fieldColors()
-            )
-
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = rememberMe, onCheckedChange = { rememberMe = it },
-                    colors = CheckboxDefaults.colors(checkedColor = Amber500, uncheckedColor = MutedText, checkmarkColor = Color.Black))
-                Text("Remember me", color = MutedText, fontSize = 13.sp)
-            }
-
-            Button(
-                onClick = { focus.clearFocus(); doSignIn() }, enabled = !loading,
-                modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black, disabledContainerColor = Amber500.copy(alpha = 0.4f))
-            ) {
-                if (loading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                else Text("Sign In", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-            }
-
-            if (biometricAvailable) {
-                OutlinedButton(
+                }
+                Button(
                     onClick = { doBiometric() }, enabled = !loading,
                     modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber500),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Amber500.copy(alpha = 0.5f))
+                    colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black)
                 ) {
-                    Text("👆  Sign in with Fingerprint", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    if (loading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Text("👆  Unlock with Fingerprint", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
                 }
-            }
-            Spacer(Modifier.height(48.dp))
+                TextButton(onClick = { showPasswordForm = true }) {
+                    Text("Use password instead", color = MutedText, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(48.dp))
+            } else {
+                // ── Full password form ──
+                Text("Sign in to continue", fontSize = 13.sp, color = MutedText)
+                Spacer(Modifier.height(4.dp))
+
+                AnimatedVisibility(visible = errorMsg != null) {
+                    Surface(color = Color(0xFF3A1A1A), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text(errorMsg ?: "", modifier = Modifier.padding(12.dp), color = Red500, fontSize = 13.sp)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = email, onValueChange = { email = it; errorMsg = null },
+                    label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
+                    colors = fieldColors()
+                )
+
+                OutlinedTextField(
+                    value = password, onValueChange = { password = it; errorMsg = null },
+                    label = { Text("Password") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); doSignIn() }),
+                    trailingIcon = {
+                        IconButton(onClick = { showPass = !showPass }) {
+                            Icon(if (showPass) Icons.Default.VisibilityOff else Icons.Default.Visibility, null, tint = MutedText)
+                        }
+                    },
+                    colors = fieldColors()
+                )
+
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = rememberMe, onCheckedChange = { rememberMe = it },
+                        colors = CheckboxDefaults.colors(checkedColor = Amber500, uncheckedColor = MutedText, checkmarkColor = Color.Black))
+                    Text("Remember me", color = MutedText, fontSize = 13.sp)
+                }
+
+                Button(
+                    onClick = { focus.clearFocus(); doSignIn() }, enabled = !loading,
+                    modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black, disabledContainerColor = Amber500.copy(alpha = 0.4f))
+                ) {
+                    if (loading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Text("Sign In", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                }
+
+                if (biometricAvailable && hasStoredCreds) {
+                    OutlinedButton(
+                        onClick = { doBiometric() }, enabled = !loading,
+                        modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber500),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Amber500.copy(alpha = 0.5f))
+                    ) {
+                        Text("👆  Sign in with Fingerprint", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                }
+                Spacer(Modifier.height(48.dp))
+            } // end else (password form)
         }
     }
 }

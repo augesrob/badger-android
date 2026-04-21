@@ -33,6 +33,13 @@ private data class GlobalMessage(
     @SerialName("created_at")   val createdAt: String? = null,
 )
 
+@Serializable
+private data class GlobalMessageInsert(
+    val message: String,
+    @SerialName("message_type") val messageType: String,
+    @SerialName("is_active")    val isActive: Boolean = true,
+)
+
 private fun typeColor(t: String) = when (t) {
     "warning" -> Color(0xFFF59E0B)
     "error"   -> Color(0xFFEF4444)
@@ -77,9 +84,7 @@ fun GlobalMessagesScreen(currentProfile: UserProfile) {
             posting = true
             try {
                 BadgerRepo.supabase.postgrest["global_messages"].insert(
-                    buildMap {
-                        put("message", text); put("message_type", newType); put("is_active", true)
-                    }
+                    GlobalMessageInsert(message = text, messageType = newType)
                 )
                 newText = ""; toast = "✅ Message posted"; load()
             } catch (e: Exception) { toast = "❌ ${e.message}" }

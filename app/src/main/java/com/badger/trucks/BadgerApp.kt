@@ -19,6 +19,8 @@ class BadgerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         RemoteLogger.init(this)
+        // Store context before supabase lazy-init fires so session manager can reference it
+        appContext = this
         CoroutineScope(Dispatchers.IO).launch { AuthManager.init() }
         val url = BuildConfig.SUPABASE_URL
         val wsUrl = url.replace("https://", "wss://").replace("http://", "ws://") + "/realtime/v1/websocket"
@@ -27,13 +29,26 @@ class BadgerApp : Application() {
     }
 
     companion object {
+        lateinit var appContext: android.content.Context
+
         val supabase by lazy {
             createSupabaseClient(
                 supabaseUrl = BuildConfig.SUPABASE_URL,
                 supabaseKey = BuildConfig.SUPABASE_KEY
             ) {
                 install(Postgrest)
-                install(Auth)
+                install(Auth) {
+                    // Persist the JWT session to SharedPreferences so it survives process death.
+                    // SettingsSessionManager is the supabase-kt v3 mechanism; SharedPreferencesSettings
+                    // is from multiplatform-settings (already a transitive dep).
+                    sessionManager = io.github.jan.supabase.auth.SettingsSessionManager(
+                        settings = com.russhwolf.settings.SharedPreferencesSettings(
+                            appContext.getSharedPreferences("badger_supabase_session", android.content.Context.MODE_PRIVATE)
+                        )
+                    )
+                    // Auto-refresh the access token before it expires (tokens last ~1 hour)
+                    autoRefreshToken = true
+                }
                 install(Storage)
                 install(Functions)
                 install(Realtime) {

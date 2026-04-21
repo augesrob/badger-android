@@ -75,11 +75,15 @@ object AuthManager {
 
     suspend fun init() {
         try {
-            // Proactively refresh JWT — prevents 1h token expiry from logging users out
+            // Attempt to load the persisted session from SharedPreferences.
+            // autoRefreshToken=true means the library refreshes the JWT automatically;
+            // we only do a manual refresh here as a belt-and-suspenders check.
             try {
                 BadgerApp.supabase.auth.refreshCurrentSession()
                 RemoteLogger.i("AuthManager", "JWT refreshed OK")
             } catch (e: Exception) {
+                // Refresh failure is non-fatal — the persisted token may still be valid
+                // (e.g. no network at startup). We fall through and check currentUserOrNull().
                 RemoteLogger.w("AuthManager", "JWT refresh skipped: ${e.message}")
             }
             val user = BadgerApp.supabase.auth.currentUserOrNull()
@@ -92,6 +96,8 @@ object AuthManager {
                     return
                 }
             }
+            // No valid session in storage — show login screen
+            RemoteLogger.i("AuthManager", "No active session found, showing login")
         } catch (e: Exception) {
             RemoteLogger.w("AuthManager", "Session restore failed: ${e.message}")
         }

@@ -73,12 +73,39 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val liveDoors:               StateFlow<List<LoadingDoor>>           = _liveDoors.asStateFlow()
         val liveDoorStatusValues:    StateFlow<List<DoorStatusValue>>       = _liveDoorStatusValues.asStateFlow()
         val liveDockLockStatusValues: StateFlow<List<DockLockStatusValue>>  = _liveDockLockStatusValues.asStateFlow()
+
+        // Unread chat tracking — roomId -> unread count
+        private val _unreadCounts   = MutableStateFlow<Map<Int, Int>>(emptyMap())
+        private val _pendingRoomId  = MutableStateFlow<Int?>(null)   // room to auto-open
+        val unreadCounts: StateFlow<Map<Int, Int>> = _unreadCounts.asStateFlow()
+        val pendingRoomId: StateFlow<Int?> = _pendingRoomId.asStateFlow()
+        val totalUnread: Int get() = _unreadCounts.value.values.sum()
+
+        fun markRoomRead(roomId: Int) {
+            _unreadCounts.value = _unreadCounts.value.toMutableMap().also { it.remove(roomId) }
+            if (_pendingRoomId.value == roomId) _pendingRoomId.value = null
+        }
+
+        fun consumePendingRoom(): Int? {
+            val id = _pendingRoomId.value
+            _pendingRoomId.value = null
+            return id
+        }
+
+        internal fun incrementUnread(roomId: Int) {
+            _unreadCounts.value = _unreadCounts.value.toMutableMap().also {
+                it[roomId] = (it[roomId] ?: 0) + 1
+            }
+            _pendingRoomId.value = roomId
+        }
     }
 
     private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mainHandler  = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var ttsReady     = false
+    // Callbacks keyed by utterance ID — set once at TTS init, never replaced per-speak
+    private val ttsCallbacks = mutableMapOf<String, () -> Unit>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
@@ -172,6 +199,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         pttManager?.destroy()
         commandRecognizer?.destroy()
         tts?.stop(); tts?.shutdown()
+        ttsCallbacks.clear()
         abandonAudioFocus()
         loudnessEnhancer?.release()
         loudnessEnhancer = null
@@ -182,8 +210,26 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
+            // Set one persistent listener — replacing it per-speak() call drops callbacks
+            // for already-queued utterances and causes TTS to silently stop
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onError(utteranceId: String?) {
+                    utteranceId?.let { id ->
+                        abandonAudioFocus()
+                        ttsCallbacks.remove(id)?.invoke()
+                    }
+                }
+                override fun onDone(utteranceId: String?) {
+                    utteranceId?.let { id ->
+                        mainHandler.postDelayed({
+                            abandonAudioFocus()
+                            ttsCallbacks.remove(id)?.invoke()
+                        }, 600)
+                    }
+                }
+            })
             ttsReady = true
-            // Attach LoudnessEnhancer to the real TTS audio session now that TTS is ready
             applyVolumeBoost()
             speak("Badger live monitoring active")
         }
@@ -376,35 +422,14 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
         if (ttsEnabled && ttsReady && ttsOn) {
-
-            // If boost is active, ensure stream volume is maxed before every speak
             val boostLevel = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
             if (boostLevel != NotificationPrefsStore.VOLUME_BOOST_OFF) {
-                val am = audioManager
-                if (am != null) {
-                    val maxVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                    am.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
-                }
+                val maxVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: return
+                audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
             }
-
             val uttId = "badger_${System.currentTimeMillis()}"
+            if (onDone != null) ttsCallbacks[uttId] = onDone
             requestAudioFocus()
-            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
-                override fun onError(utteranceId: String?) {
-                    abandonAudioFocus()
-                    onDone?.invoke()
-                }
-                override fun onDone(utteranceId: String?) {
-                    if (utteranceId == uttId) {
-                        mainHandler.postDelayed({
-                            abandonAudioFocus()
-                            onDone?.invoke()
-                            // Resume hotword with TTS blackout so speaker echo doesn't re-trigger
-                        }, 600)
-                    }
-                }
-            })
             tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
         } else {
             onDone?.invoke()
@@ -511,6 +536,19 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         cachedDockLockStatusValues = BadgerRepo.getDockLockStatusValues()
                         _liveDockLockStatusValues.value = cachedDockLockStatusValues
                     } catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues refresh: ${'$'}{e.message}") }
+                }.launchIn(scope)
+
+                // Track incoming chat messages for unread badge
+                channel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
+                    try {
+                        val roomId = action.record["room_id"]?.toString()?.trim('"')?.toIntOrNull() ?: return@onEach
+                        val senderId = action.record["sender_id"]?.toString()?.trim('"') ?: return@onEach
+                        val myId = BadgerRepo.currentUserId() ?: return@onEach
+                        // Don't count our own messages
+                        if (senderId == myId) return@onEach
+                        incrementUnread(roomId)
+                        RemoteLogger.i("BadgerService", "New chat message in room $roomId")
+                    } catch (e: Exception) { Log.w("BadgerService", "Chat unread tracking: ${e.message}") }
                 }.launchIn(scope)
 
                 RemoteLogger.i("BadgerService", "Calling channel.subscribe()...")
