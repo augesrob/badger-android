@@ -19,13 +19,50 @@ class BadgerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         RemoteLogger.init(this)
-        // Store context before supabase lazy-init fires so session manager can reference it
         appContext = this
+        installCrashHandler()
         CoroutineScope(Dispatchers.IO).launch { AuthManager.init() }
         val url = BuildConfig.SUPABASE_URL
         val wsUrl = url.replace("https://", "wss://").replace("http://", "ws://") + "/realtime/v1/websocket"
         RemoteLogger.i("BadgerApp", "App started — REST: $url")
         RemoteLogger.i("BadgerApp", "WebSocket URL will be: $wsUrl")
+    }
+
+    private fun installCrashHandler() {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                // Build a compact stack trace (first 8 frames is enough)
+                val stackTrace = throwable.stackTrace
+                    .take(8)
+                    .joinToString(" ← ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
+                val msg = "${throwable::class.simpleName}: ${throwable.message} | $stackTrace"
+
+                // Always log locally
+                android.util.Log.e("CRASH", msg, throwable)
+
+                // Persist to SharedPreferences — survives even if DB write fails
+                // Readable from DebugScreen → "Last Crash" section
+                appContext.getSharedPreferences("badger_crash_log", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("last_crash", msg)
+                    .putLong("last_crash_time", System.currentTimeMillis())
+                    .apply()
+
+                // Force-enable remote logging for crash so it always goes to DB
+                val wasEnabled = RemoteLogger.remoteEnabled
+                RemoteLogger.remoteEnabled = true
+                RemoteLogger.e("CRASH", msg)
+                RemoteLogger.remoteEnabled = wasEnabled
+
+                Thread.sleep(1500)
+            } catch (_: Exception) {
+                // Never let the crash handler itself crash
+            }
+            // Re-throw to default handler so Android still shows the crash dialog
+            // and writes to logcat
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
     }
 
     companion object {

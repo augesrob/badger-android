@@ -44,6 +44,11 @@ fun DebugScreen() {
     var sending         by remember { mutableStateOf(false) }
     val listState       = rememberLazyListState()
 
+    // Last crash from SharedPreferences
+    val crashPrefs = remember { context.getSharedPreferences("badger_crash_log", android.content.Context.MODE_PRIVATE) }
+    var lastCrash     by remember { mutableStateOf(crashPrefs.getString("last_crash", null)) }
+    var lastCrashTime by remember { mutableStateOf(crashPrefs.getLong("last_crash_time", 0L)) }
+
     // Load remote logging toggle from prefs
     var remoteLogging by remember {
         mutableStateOf(
@@ -72,6 +77,41 @@ fun DebugScreen() {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text("Debug", color = Amber500, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+
+        // ── Last Crash ────────────────────────────────────────────────────────
+        if (lastCrash != null) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2A0F0F)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("💥 Last Crash", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        if (lastCrashTime > 0L) {
+                            Text(
+                                java.text.SimpleDateFormat("MM/dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(lastCrashTime)),
+                                color = Color(0xFF888888), fontSize = 10.sp
+                            )
+                        }
+                    }
+                    Text(
+                        lastCrash ?: "",
+                        color = Color(0xFFFFAAAA), fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace, lineHeight = 14.sp
+                    )
+                    TextButton(onClick = {
+                        crashPrefs.edit().remove("last_crash").remove("last_crash_time").apply()
+                        lastCrash = null; lastCrashTime = 0L
+                    }) {
+                        Text("Clear", color = Color(0xFF888888), fontSize = 11.sp)
+                    }
+                }
+            }
+        }
 
         // ── Remote Debug Mode Toggle ──────────────────────────────────────────
         Card(
