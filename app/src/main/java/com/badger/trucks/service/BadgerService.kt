@@ -199,6 +199,26 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // Called when user swipes app away from recents.
+    // stopWithTask="false" in manifest keeps the service alive,
+    // but onTaskRemoved gives us a chance to explicitly restart it
+    // on Samsung devices that ignore stopWithTask.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        RemoteLogger.w("BadgerService", "onTaskRemoved — scheduling restart")
+        val restartIntent = Intent(applicationContext, BadgerService::class.java)
+        val pending = android.app.PendingIntent.getService(
+            applicationContext, 1, restartIntent,
+            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarm = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        alarm.set(
+            android.app.AlarmManager.ELAPSED_REALTIME,
+            android.os.SystemClock.elapsedRealtime() + 1000,
+            pending
+        )
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false

@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Mic for PTT and wake word -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
@@ -38,8 +39,9 @@
 
         <service
             android:name=".service.BadgerService"
-            android:foregroundServiceType="dataSync|microphone"
-            android:exported="false" />
+            android:foregroundServiceType="dataSync|microphone|mediaPlayback"
+            android:exported="false"
+            android:stopWithTask="false" />
 
         <!-- FileProvider for APK installs on Android 7+ -->
         <provider
