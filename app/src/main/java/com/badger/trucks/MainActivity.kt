@@ -1,10 +1,17 @@
 package com.badger.trucks
 
 import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.provider.Settings
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -91,21 +98,15 @@ class MainActivity : FragmentActivity() {
         requestPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
     }
 
-    /** Shows a one-time dialog prompting the user to disable battery optimization.
-     *  Without this Samsung/Android kills the background service when the app is minimized. */
     private fun checkBatteryOptimization() {
         val prefs = getSharedPreferences("badger_prefs", MODE_PRIVATE)
         val alreadyAsked = prefs.getBoolean("battery_opt_asked", false)
-
         val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         val isIgnoring = pm.isIgnoringBatteryOptimizations(packageName)
-
-        // Only show once, and only if battery optimization is still on
         if (alreadyAsked || isIgnoring) return
         prefs.edit().putBoolean("battery_opt_asked", true).apply()
 
-        // Show dialog explaining why
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("⚙️ Battery Setting Required")
             .setMessage(
                 "To keep Badger running in the background and receive TTS alerts, " +
@@ -114,16 +115,12 @@ class MainActivity : FragmentActivity() {
             )
             .setPositiveButton("Open Settings") { _, _ ->
                 try {
-                    // Takes user directly to the battery optimization page for this app
-                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = android.net.Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
+                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
                 } catch (e: Exception) {
-                    // Fallback — open general battery optimization settings
-                    try {
-                        startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    } catch (_: Exception) {}
+                    try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+                    catch (_: Exception) {}
                 }
             }
             .setNegativeButton("Maybe Later", null)
