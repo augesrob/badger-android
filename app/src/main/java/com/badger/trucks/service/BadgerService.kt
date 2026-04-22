@@ -515,20 +515,32 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 // Register ALL flows before subscribe() â€” use launchIn(this) so they
                 // are children of this job and cancel together, preventing AtomicMutableList race
-                channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach { action ->
                     try {
-                        val updated = BadgerRepo.getLiveMovement()
-                        updated.forEach { truck ->
-                            val prev = knownStatuses[truck.truckNumber]
-                            val curr = truck.statusName
-                            if (prev != null && curr != null && prev != curr) {
-                                speak("Truck ${truck.truckNumber}, $curr")
-                                if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS))
-                                    pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS, "ðŸšš Truck ${truck.truckNumber}",
-                                        "$prev â†’ $curr${truck.currentLocation?.let { " @ $it" } ?: ""}", "truck_${truck.truckNumber}")
-                            }
-                            knownStatuses[truck.truckNumber] = curr
+                        // Read status change directly from payload -- no DB call, no race with heartbeat
+                        val record = when (action) {
+                            is PostgresAction.Update -> action.record
+                            is PostgresAction.Insert -> action.record
+                            else -> null
                         }
+                        if (record != null) {
+                            val truckNum = record["truck_number"]?.toString()?.trim('"') ?: ""
+                            val statusId = record["status_id"]?.toString()?.trim('"')?.toIntOrNull()
+                            val currName = cachedStatuses.find { it.id == statusId }?.statusName
+                            if (truckNum.isNotBlank()) {
+                                val prev = knownStatuses[truckNum]
+                                if (currName != null && prev != currName) {
+                                    speak("Truck $truckNum, $currName")
+                                    if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS))
+                                        pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS,
+                                            "Truck $truckNum", "${prev ?: "New"} -> $currName", "truck_$truckNum")
+                                }
+                                knownStatuses[truckNum] = currName
+                            }
+                        }
+                        // Refresh full cache so location/other fields stay current
+                        val updated = BadgerRepo.getLiveMovement()
+                        updated.forEach { knownStatuses[it.truckNumber] = it.statusName }
                         val currSet = updated.map { it.truckNumber }.toSet()
                         knownStatuses.keys.filter { it !in currSet }.forEach { knownStatuses.remove(it) }
                         cachedTrucks = updated
