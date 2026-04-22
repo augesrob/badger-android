@@ -75,75 +75,75 @@ object AuthManager {
 
     suspend fun init() {
         try {
-            try {
-                BadgerApp.supabase.auth.refreshCurrentSession()
-                RemoteLogger.i("AuthManager", "JWT refreshed OK")
-            } catch (e: Exception) {
-                RemoteLogger.w("AuthManager", "JWT refresh skipped: ${e.message}")
-            }
-            val user = BadgerApp.supabase.auth.currentUserOrNull()
-            if (user != null) {
+            // Check if we already have a valid user in the persisted session FIRST
+            // before attempting a refresh — on Samsung devices, background network
+            // is killed on screen lock causing refresh to fail even with valid tokens
+            val existingUser = BadgerApp.supabase.auth.currentUserOrNull()
+            if (existingUser != null) {
                 val p = BadgerRepo.getCurrentProfile()
                 if (p != null) {
                     _state.value = AuthState.LoggedIn(p)
-                    RemoteLogger.i("AuthManager", "Session restored — ${p.username} role=${p.role}")
+                    RemoteLogger.i("AuthManager", "Session valid (no refresh needed) — ${p.username}")
                     startProfileWatch(p.id)
+                    // Refresh in background so next startup is even faster
+                    try { BadgerApp.supabase.auth.refreshCurrentSession() } catch (_: Exception) {}
                     return
                 }
             }
-            // Session gone — try HWID auto-login before showing any UI
-            RemoteLogger.i("AuthManager", "No active session — trying HWID auto-login")
+
+            // No valid session in memory — try refresh from persisted token
+            try {
+                BadgerApp.supabase.auth.refreshCurrentSession()
+                RemoteLogger.i("AuthManager", "JWT refreshed OK")
+                val user = BadgerApp.supabase.auth.currentUserOrNull()
+                if (user != null) {
+                    val p = BadgerRepo.getCurrentProfile()
+                    if (p != null) {
+                        _state.value = AuthState.LoggedIn(p)
+                        RemoteLogger.i("AuthManager", "Session restored after refresh — ${p.username}")
+                        startProfileWatch(p.id)
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                RemoteLogger.w("AuthManager", "JWT refresh failed: ${e.message}")
+            }
+
+            // Session fully expired — try HWID silent re-login using locally stored credentials
+            RemoteLogger.i("AuthManager", "Session expired — trying HWID silent login")
+            if (tryHwidAutoLogin()) return
+
         } catch (e: Exception) {
             RemoteLogger.w("AuthManager", "Session restore failed: ${e.message}")
+            // Last resort — try HWID login even on unexpected error
+            try { if (tryHwidAutoLogin()) return } catch (_: Exception) {}
         }
-
-        // Try HWID-bound silent sign-in
-        if (tryHwidAutoLogin()) return
-
         _state.value = AuthState.LoggedOut
     }
 
     /**
-     * Attempts silent sign-in using credentials bound to this device's hardware ID.
-     * If the device is registered in the DB, signs in without showing any UI.
-     * Returns true if sign-in succeeded.
+     * Silent sign-in using locally stored credentials bound to this device.
+     * No network call to look up the device — uses SharedPreferences directly.
+     * This works even if device_registrations table doesn't exist in DB.
      */
     private suspend fun tryHwidAutoLogin(): Boolean {
         return try {
-            val hwid  = getHwid(BadgerApp.appContext)
-            val email = BadgerRepo.getEmailForHwid(hwid) ?: return false
-            // Use stored encrypted password for this device
-            val pass  = getDecryptedPassword(BadgerApp.appContext) ?: return false
-            RemoteLogger.i("AuthManager", "HWID auto-login for $email (hwid=$hwid)")
-            signIn(email, pass).isSuccess
+            val context = BadgerApp.appContext
+            // Use the saved email + stored encrypted password — same as biometric flow
+            // but without requiring the user to touch the fingerprint sensor
+            val email = getSavedEmail(context)
+            if (email.isBlank()) return false
+            val pass = getDecryptedPassword(context) ?: return false
+            RemoteLogger.i("AuthManager", "HWID silent login for $email")
+            val result = signIn(email, pass)
+            if (result.isSuccess) {
+                RemoteLogger.i("AuthManager", "HWID silent login OK")
+                true
+            } else false
         } catch (e: Exception) {
-            RemoteLogger.w("AuthManager", "HWID auto-login failed: ${e.message}")
+            RemoteLogger.w("AuthManager", "HWID silent login failed: ${e.message}")
             false
         }
-    }
-
-    /** Registers this device's HWID → email mapping so it can auto-login in future. */
-    suspend fun registerDeviceHwid(context: Context, email: String) {
-        try {
-            val hwid = getHwid(context)
-            BadgerRepo.registerHwid(hwid, email)
-            RemoteLogger.i("AuthManager", "Device HWID registered: $hwid → $email")
-        } catch (e: Exception) {
-            RemoteLogger.w("AuthManager", "HWID register failed: ${e.message}")
-        }
-    }
-
-    /** Stable hardware-bound device ID using Android ID + Build fingerprint. */
-    fun getHwid(context: Context): String {
-        val androidId = android.provider.Settings.Secure.getString(
-            context.contentResolver, android.provider.Settings.Secure.ANDROID_ID
-        ) ?: "unknown"
-        // Combine with model for extra uniqueness
-        val raw = "$androidId-${android.os.Build.MODEL}-${android.os.Build.HARDWARE}"
-        return java.security.MessageDigest.getInstance("SHA-256")
-            .digest(raw.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-            .take(32)
     }
 
     suspend fun signIn(email: String, password: String): Result<UserProfile> {
