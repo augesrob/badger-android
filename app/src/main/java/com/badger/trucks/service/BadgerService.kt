@@ -579,24 +579,32 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 channel.subscribe(blockUntilSubscribed = true)
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK â€” $channelName status=${channel.status.value.name}")
 
-                // Heartbeat â€” health check + TTS watchdog + silent cache refresh
+                // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh
                 while (isActive) {
-                    delay(30_000L)
+                    delay(15_000L)
 
-                    if (channel.status.value.name != "SUBSCRIBED") {
-                        RemoteLogger.w("BadgerService", "Heartbeat: channel ${channel.status.value.name} â€” restarting")
+                    // Check channel health
+                    val statusName = channel.status.value.name
+                    if (statusName != "SUBSCRIBED") {
+                        RemoteLogger.w("BadgerService", "Heartbeat: channel $statusName -- restarting")
                         startRealtimeSync()
                         return@launch
                     }
 
-                    // TTS watchdog
+                    // Active ping -- detects dead Samsung WebSocket TCP connections
+                    try { BadgerRepo.ping() } catch (e: Exception) {
+                        RemoteLogger.w("BadgerService", "Heartbeat ping failed: ${e.message} -- restarting")
+                        startRealtimeSync(); return@launch
+                    }
+
+                    // TTS watchdog -- reinit if engine silently died
                     if (ttsEnabled && !ttsReady) {
                         RemoteLogger.w("BadgerService", "TTS watchdog: engine dead, reinitializing")
                         tts?.stop(); tts?.shutdown(); ttsCallbacks.clear(); ttsReady = false
                         tts = TextToSpeech(this@BadgerService, this@BadgerService)
                     }
 
-                    // Silent cache sync
+                    // Silent cache sync -- no TTS/notifications
                     try {
                         cachedTrucks = BadgerRepo.getLiveMovement().also { list -> list.forEach { knownStatuses[it.truckNumber] = it.statusName } }
                         cachedDoors  = BadgerRepo.getLoadingDoors().also  { list -> list.forEach { knownDoorStatus[it.doorName]  = it.doorStatus } }
