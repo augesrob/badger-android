@@ -15,8 +15,8 @@ android {
         applicationId = "com.badger.access"
         minSdk = 26
         targetSdk = 34
-        versionCode = 71
-        versionName = "71.0"
+        versionCode = 72
+        versionName = "72.0"
 
         // Secrets injected from local.properties (dev) or GitHub Secrets (CI)
         val localProps = Properties().also { props ->
