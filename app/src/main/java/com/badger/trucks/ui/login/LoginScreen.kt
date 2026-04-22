@@ -55,7 +55,6 @@ fun LoginScreen() {
     }
 
     val hasStoredCreds = remember { AuthManager.hasStoredCredentials(context) }
-    // If biometric is available and we have stored credentials, show biometric prompt by default
     var showPasswordForm by remember { mutableStateOf(!biometricAvailable || !hasStoredCreds) }
 
     fun doSignIn() {
@@ -67,8 +66,6 @@ fun LoginScreen() {
                     if (rememberMe) {
                         AuthManager.saveEmail(context, email.trim(), true)
                         AuthManager.saveEncryptedPassword(context, password)
-                        // Register this device's HWID so future startups skip login entirely
-                        AuthManager.registerDeviceHwid(context, email.trim())
                     } else {
                         AuthManager.saveEmail(context, "", false)
                     }
@@ -98,13 +95,8 @@ fun LoginScreen() {
                     scope.launch {
                         loading = true
                         errorMsg = null
-                        // Try JWT refresh first (fast path — session still valid)
                         AuthManager.init()
-                        if (AuthManager.isLoggedIn) {
-                            loading = false
-                            return@launch
-                        }
-                        // Session expired — re-sign-in using stored encrypted credentials
+                        if (AuthManager.isLoggedIn) { loading = false; return@launch }
                         val storedPass = AuthManager.getDecryptedPassword(context)
                         if (storedPass == null) {
                             errorMsg = "Stored credentials not found — sign in with password"
@@ -112,21 +104,14 @@ fun LoginScreen() {
                             return@launch
                         }
                         AuthManager.signIn(savedEmail, storedPass)
-                            .onSuccess {
-                                // Refresh stored credentials on successful re-auth
-                                AuthManager.saveEncryptedPassword(context, storedPass)
-                            }
-                            .onFailure {
-                                errorMsg = "Biometric sign-in failed — sign in with password"
-                            }
+                            .onSuccess { AuthManager.saveEncryptedPassword(context, storedPass) }
+                            .onFailure { errorMsg = "Biometric sign-in failed — sign in with password" }
                         loading = false
                     }
                 }
                 override fun onAuthenticationError(code: Int, msg: CharSequence) {
-                    if (code != BiometricPrompt.ERROR_USER_CANCELED && code != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                    if (code != BiometricPrompt.ERROR_USER_CANCELED && code != BiometricPrompt.ERROR_NEGATIVE_BUTTON)
                         errorMsg = "Biometric error: $msg"
-                    }
-                    // Show password form so user isn't stuck on a blank screen
                     showPasswordForm = true
                 }
                 override fun onAuthenticationFailed() {
@@ -143,11 +128,8 @@ fun LoginScreen() {
         )
     }
 
-    // Auto-trigger biometric prompt on first load if credentials are stored
     LaunchedEffect(Unit) {
-        if (biometricAvailable && hasStoredCreds) {
-            doBiometric()
-        }
+        if (biometricAvailable && hasStoredCreds) doBiometric()
     }
 
     Box(Modifier.fillMaxSize().background(DarkBg), contentAlignment = Alignment.Center) {
@@ -160,7 +142,6 @@ fun LoginScreen() {
             Text("🦡", fontSize = 56.sp, textAlign = TextAlign.Center)
             Text("Badger Access", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Amber500)
 
-            // ── Biometric-first screen (stored creds + biometric available) ──
             if (!showPasswordForm) {
                 Text("Sign in with your fingerprint", fontSize = 13.sp, color = MutedText)
                 Spacer(Modifier.height(12.dp))
@@ -182,16 +163,13 @@ fun LoginScreen() {
                 }
                 Spacer(Modifier.height(48.dp))
             } else {
-                // ── Full password form ──
                 Text("Sign in to continue", fontSize = 13.sp, color = MutedText)
                 Spacer(Modifier.height(4.dp))
-
                 AnimatedVisibility(visible = errorMsg != null) {
                     Surface(color = Color(0xFF3A1A1A), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
                         Text(errorMsg ?: "", modifier = Modifier.padding(12.dp), color = Red500, fontSize = 13.sp)
                     }
                 }
-
                 OutlinedTextField(
                     value = email, onValueChange = { email = it; errorMsg = null },
                     label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -199,7 +177,6 @@ fun LoginScreen() {
                     keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
                     colors = fieldColors()
                 )
-
                 OutlinedTextField(
                     value = password, onValueChange = { password = it; errorMsg = null },
                     label = { Text("Password") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -213,13 +190,11 @@ fun LoginScreen() {
                     },
                     colors = fieldColors()
                 )
-
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = rememberMe, onCheckedChange = { rememberMe = it },
                         colors = CheckboxDefaults.colors(checkedColor = Amber500, uncheckedColor = MutedText, checkmarkColor = Color.Black))
                     Text("Remember me", color = MutedText, fontSize = 13.sp)
                 }
-
                 Button(
                     onClick = { focus.clearFocus(); doSignIn() }, enabled = !loading,
                     modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(12.dp),
@@ -228,7 +203,6 @@ fun LoginScreen() {
                     if (loading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Text("Sign In", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
                 }
-
                 if (biometricAvailable && hasStoredCreds) {
                     OutlinedButton(
                         onClick = { doBiometric() }, enabled = !loading,
@@ -240,7 +214,7 @@ fun LoginScreen() {
                     }
                 }
                 Spacer(Modifier.height(48.dp))
-            } // end else (password form)
+            }
         }
     }
 }
