@@ -75,15 +75,10 @@ object AuthManager {
 
     suspend fun init() {
         try {
-            // Attempt to load the persisted session from SharedPreferences.
-            // autoRefreshToken=true means the library refreshes the JWT automatically;
-            // we only do a manual refresh here as a belt-and-suspenders check.
             try {
                 BadgerApp.supabase.auth.refreshCurrentSession()
                 RemoteLogger.i("AuthManager", "JWT refreshed OK")
             } catch (e: Exception) {
-                // Refresh failure is non-fatal — the persisted token may still be valid
-                // (e.g. no network at startup). We fall through and check currentUserOrNull().
                 RemoteLogger.w("AuthManager", "JWT refresh skipped: ${e.message}")
             }
             val user = BadgerApp.supabase.auth.currentUserOrNull()
@@ -96,12 +91,59 @@ object AuthManager {
                     return
                 }
             }
-            // No valid session in storage — show login screen
-            RemoteLogger.i("AuthManager", "No active session found, showing login")
+            // Session gone — try HWID auto-login before showing any UI
+            RemoteLogger.i("AuthManager", "No active session — trying HWID auto-login")
         } catch (e: Exception) {
             RemoteLogger.w("AuthManager", "Session restore failed: ${e.message}")
         }
+
+        // Try HWID-bound silent sign-in
+        if (tryHwidAutoLogin()) return
+
         _state.value = AuthState.LoggedOut
+    }
+
+    /**
+     * Attempts silent sign-in using credentials bound to this device's hardware ID.
+     * If the device is registered in the DB, signs in without showing any UI.
+     * Returns true if sign-in succeeded.
+     */
+    private suspend fun tryHwidAutoLogin(): Boolean {
+        return try {
+            val hwid  = getHwid(BadgerApp.appContext)
+            val email = BadgerRepo.getEmailForHwid(hwid) ?: return false
+            // Use stored encrypted password for this device
+            val pass  = getDecryptedPassword(BadgerApp.appContext) ?: return false
+            RemoteLogger.i("AuthManager", "HWID auto-login for $email (hwid=$hwid)")
+            signIn(email, pass).isSuccess
+        } catch (e: Exception) {
+            RemoteLogger.w("AuthManager", "HWID auto-login failed: ${e.message}")
+            false
+        }
+    }
+
+    /** Registers this device's HWID → email mapping so it can auto-login in future. */
+    suspend fun registerDeviceHwid(context: Context, email: String) {
+        try {
+            val hwid = getHwid(context)
+            BadgerRepo.registerHwid(hwid, email)
+            RemoteLogger.i("AuthManager", "Device HWID registered: $hwid → $email")
+        } catch (e: Exception) {
+            RemoteLogger.w("AuthManager", "HWID register failed: ${e.message}")
+        }
+    }
+
+    /** Stable hardware-bound device ID using Android ID + Build fingerprint. */
+    fun getHwid(context: Context): String {
+        val androidId = android.provider.Settings.Secure.getString(
+            context.contentResolver, android.provider.Settings.Secure.ANDROID_ID
+        ) ?: "unknown"
+        // Combine with model for extra uniqueness
+        val raw = "$androidId-${android.os.Build.MODEL}-${android.os.Build.HARDWARE}"
+        return java.security.MessageDigest.getInstance("SHA-256")
+            .digest(raw.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+            .take(32)
     }
 
     suspend fun signIn(email: String, password: String): Result<UserProfile> {

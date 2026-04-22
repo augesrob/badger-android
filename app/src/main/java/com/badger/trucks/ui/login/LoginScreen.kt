@@ -66,8 +66,9 @@ fun LoginScreen() {
                 .onSuccess {
                     if (rememberMe) {
                         AuthManager.saveEmail(context, email.trim(), true)
-                        // Encrypt and store password so biometric can re-sign-in later
                         AuthManager.saveEncryptedPassword(context, password)
+                        // Register this device's HWID so future startups skip login entirely
+                        AuthManager.registerDeviceHwid(context, email.trim())
                     } else {
                         AuthManager.saveEmail(context, "", false)
                     }

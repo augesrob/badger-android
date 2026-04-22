@@ -338,4 +338,30 @@ object BadgerRepo {
 
     // ===== REALTIME =====
     fun realtimeChannel(name: String) = client.channel(name)
+
+    // ===== HWID AUTO-LOGIN =====
+
+    /** Returns the email registered for this HWID, or null if not registered. */
+    suspend fun getEmailForHwid(hwid: String): String? {
+        return try {
+            val result = client.postgrest["device_registrations"]
+                .select { filter { eq("hwid", hwid) } }
+                .decodeList<kotlinx.serialization.json.JsonObject>()
+            (result.firstOrNull()?.get("email") as? kotlinx.serialization.json.JsonPrimitive)?.content
+        } catch (e: Exception) {
+            RemoteLogger.w("BadgerRepo", "getEmailForHwid failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Upserts this device's HWID → email binding. */
+    suspend fun registerHwid(hwid: String, email: String) {
+        try {
+            client.postgrest["device_registrations"].upsert(
+                mapOf("hwid" to hwid, "email" to email),
+            ) { onConflict = "hwid" }
+        } catch (e: Exception) {
+            RemoteLogger.w("BadgerRepo", "registerHwid failed: ${e.message}")
+        }
+    }
 }

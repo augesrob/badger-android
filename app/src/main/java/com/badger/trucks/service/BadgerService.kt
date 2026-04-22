@@ -103,9 +103,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mainHandler  = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
-    private var ttsReady     = false
+    private var ttsReady       = false
     private var ttsParams: android.os.Bundle? = null
-    private val ttsCallbacks = mutableMapOf<String, () -> Unit>()
+    private val ttsCallbacks   = mutableMapOf<String, () -> Unit>()
+    private var ttsInitRetries = 0
+    private var lastSpeakTime  = 0L  // for watchdog
 
     // Keep references so we can cleanly unsubscribe on restart
     private var realtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
@@ -444,6 +446,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
             val uttId = "badger_${System.currentTimeMillis()}"
             if (onDone != null) ttsCallbacks[uttId] = onDone
+            lastSpeakTime = System.currentTimeMillis()
             requestAudioFocus()
             tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
         } else {
@@ -611,37 +614,31 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         startRealtimeSync()
                         return@launch
                     }
-                    // Poll trucks and doors — catch any changes missed by realtime
+                // TTS watchdog — if TTS hasn't spoken in 5+ minutes and ttsReady is false,
+                // the engine has silently died. Reinitialize it.
+                val ttsOn = NotificationPrefsStore.get(this@BadgerService, NotificationPrefsStore.KEY_CHANNEL_TTS)
+                if (ttsEnabled && ttsOn && !ttsReady) {
+                    val silentMs = System.currentTimeMillis() - lastSpeakTime
+                    if (silentMs > 5 * 60 * 1000L || lastSpeakTime == 0L) {
+                        RemoteLogger.w("BadgerService", "TTS watchdog: engine not ready, reinitializing")
+                        tts?.stop(); tts?.shutdown()
+                        ttsCallbacks.clear()
+                        ttsReady = false
+                        tts = TextToSpeech(this@BadgerService, this@BadgerService)
+                    }
+                }
+
+                // Heartbeat poll — update cache silently, NO TTS/notifications
+                    // (realtime flow handles announcements — heartbeat just catches missed events)
                     try {
                         val updatedTrucks = BadgerRepo.getLiveMovement()
-                        updatedTrucks.forEach { truck ->
-                            val prev = knownStatuses[truck.truckNumber]
-                            val curr = truck.statusName
-                            if (prev != null && curr != null && prev != curr) {
-                                Log.d("BadgerService", "Heartbeat detected truck change: ${truck.truckNumber} $prev -> $curr")
-                                speak("Truck ${truck.truckNumber}, $curr")
-                                if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS)) {
-                                    pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS, "🚚 Truck ${truck.truckNumber}",
-                                        "$prev → $curr${truck.currentLocation?.let { " @ $it" } ?: ""}", "truck_${truck.truckNumber}")
-                                }
-                            }
-                            knownStatuses[truck.truckNumber] = curr
-                        }
+                        updatedTrucks.forEach { truck -> knownStatuses[truck.truckNumber] = truck.statusName }
+                        val currSet = updatedTrucks.map { it.truckNumber }.toSet()
+                        knownStatuses.keys.filter { it !in currSet }.forEach { knownStatuses.remove(it) }
                         cachedTrucks = updatedTrucks
 
                         val updatedDoors = BadgerRepo.getLoadingDoors()
-                        updatedDoors.forEach { door ->
-                            val prev = knownDoorStatus[door.doorName]
-                            val curr = door.doorStatus
-                            if (prev != null && curr != prev && curr.isNotBlank()) {
-                                Log.d("BadgerService", "Heartbeat detected door change: ${door.doorName} $prev -> $curr")
-                                speak("Door ${door.doorName}, $curr")
-                                if (canNotify(NotificationPrefsStore.KEY_DOOR_STATUS)) {
-                                    pushNotif(NotificationHelper.CHANNEL_DOOR_STATUS, "🚪 Door ${door.doorName}", "$prev → $curr", "door_${door.doorName}")
-                                }
-                            }
-                            knownDoorStatus[door.doorName] = curr
-                        }
+                        updatedDoors.forEach { door -> knownDoorStatus[door.doorName] = door.doorStatus }
                         cachedDoors = updatedDoors
                     } catch (e: Exception) { Log.w("BadgerService", "Heartbeat poll failed: ${e.message}") }
                 }
