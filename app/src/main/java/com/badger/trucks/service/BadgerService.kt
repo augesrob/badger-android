@@ -515,9 +515,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 // Register ALL flows before subscribe() â€” use launchIn(this) so they
                 // are children of this job and cancel together, preventing AtomicMutableList race
+                // ALL flows registered before subscribe() — launchIn(this) = child of job
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach { action ->
                     try {
-                        // Read status change directly from payload -- no DB call, no race with heartbeat
                         val record = when (action) {
                             is PostgresAction.Update -> action.record
                             is PostgresAction.Insert -> action.record
@@ -526,7 +526,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         if (record != null) {
                             val truckNum = record["truck_number"]?.toString()?.trim('"') ?: ""
                             val statusId = record["status_id"]?.toString()?.trim('"')?.toIntOrNull()
-                            val currName = cachedStatuses.find { it.id == statusId }?.statusName
+                            // If status not in cache (new custom status), refresh statuses first
+                            var currName = cachedStatuses.find { it.id == statusId }?.statusName
+                            if (currName == null && statusId != null) {
+                                cachedStatuses = BadgerRepo.getStatuses()
+                                currName = cachedStatuses.find { it.id == statusId }?.statusName
+                            }
                             if (truckNum.isNotBlank()) {
                                 val prev = knownStatuses[truckNum]
                                 if (currName != null && prev != currName) {
@@ -535,16 +540,25 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                                         pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS,
                                             "Truck $truckNum", "${prev ?: "New"} -> $currName", "truck_$truckNum")
                                 }
-                                knownStatuses[truckNum] = currName
+                                // Only store valid status name — never store null which breaks next comparison
+                                if (currName != null) knownStatuses[truckNum] = currName
                             }
                         }
-                        // Refresh full cache so location/other fields stay current
+                        // Background cache refresh for location/other fields only
                         val updated = BadgerRepo.getLiveMovement()
-                        updated.forEach { knownStatuses[it.truckNumber] = it.statusName }
+                        cachedTrucks = updated
+                        updated.forEach { t -> if (t.statusName != null) knownStatuses[t.truckNumber] = t.statusName }
                         val currSet = updated.map { it.truckNumber }.toSet()
                         knownStatuses.keys.filter { it !in currSet }.forEach { knownStatuses.remove(it) }
-                        cachedTrucks = updated
                     } catch (e: Exception) { Log.e("BadgerService", "Truck refresh: ${e.message}") }
+                }.launchIn(this)
+
+                // Keep cachedStatuses current so new custom statuses are announced immediately
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "status_values" }.onEach {
+                    try {
+                        cachedStatuses = BadgerRepo.getStatuses()
+                        RemoteLogger.i("BadgerService", "status_values updated: ${cachedStatuses.size} statuses")
+                    } catch (e: Exception) { Log.e("BadgerService", "StatusValues: ${e.message}") }
                 }.launchIn(this)
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.onEach {
