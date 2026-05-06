@@ -103,6 +103,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private val HOTWORD_COOLDOWN_MS = 4_000L
+    private var cooldownResumeRunnable: Runnable? = null
+    private val COOLDOWN_RESUME_TOKEN = Object() // unique token for removeCallbacksAndMessages
     @Volatile private var lastHotwordMs = 0L
 
     // Cached data for voice commands
@@ -301,7 +303,19 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun onHotwordDetected() {
         val now = System.currentTimeMillis()
         if (now - lastHotwordMs < HOTWORD_COOLDOWN_MS) {
-            hotwordListener?.resume()
+            // Within cooldown — do NOT resume immediately (causes feedback loop).
+            // Cancel any existing cooldown resume, then schedule a fresh one.
+            cooldownResumeRunnable?.let { mainHandler.removeCallbacks(it) }
+            val remaining = HOTWORD_COOLDOWN_MS - (now - lastHotwordMs)
+            Log.d("BadgerService", "Hotword cooldown: ignoring, will resume in ${remaining + 500}ms")
+            val resumeRunnable = Runnable {
+                if (hotwordListener != null && !_hotwordActive.value) {
+                    Log.d("BadgerService", "Cooldown expired, resuming hotword")
+                    hotwordListener?.resume()
+                }
+            }
+            cooldownResumeRunnable = resumeRunnable
+            mainHandler.postDelayed(resumeRunnable, remaining + 500)
             return
         }
         lastHotwordMs = now
@@ -436,28 +450,48 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
-        if (ttsEnabled && ttsReady && ttsOn) {
-            val uttId = "badger_${System.currentTimeMillis()}"
-            requestAudioFocus()
-            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
-                override fun onError(utteranceId: String?) {
-                    abandonAudioFocus()
-                    onDone?.invoke()
+        if (!ttsEnabled || !ttsOn) { onDone?.invoke(); return }
+
+        // Re-init TTS if it died (Android reclaims it in background)
+        if (!ttsReady || tts == null) {
+            Log.w("BadgerService", "TTS not ready, re-initializing...")
+            tts?.shutdown()
+            tts = TextToSpeech(this, this)
+            onDone?.invoke()
+            return
+        }
+
+        val uttId = "badger_${System.currentTimeMillis()}"
+        requestAudioFocus()
+
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onError(utteranceId: String?) {
+                Log.w("BadgerService", "TTS error for: $text")
+                mainHandler.post { abandonAudioFocus(); onDone?.invoke() }
+            }
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == uttId) {
+                    mainHandler.postDelayed({ abandonAudioFocus(); onDone?.invoke() }, 600)
                 }
-                override fun onDone(utteranceId: String?) {
-                    if (utteranceId == uttId) {
-                        mainHandler.postDelayed({
-                            abandonAudioFocus()
-                            onDone?.invoke()
-                        }, 600)
-                    }
-                }
-            })
-            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
-        } else {
+            }
+        })
+
+        val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
+        if (result != TextToSpeech.SUCCESS) {
+            Log.e("BadgerService", "TTS speak() failed with result=$result for: $text")
+            abandonAudioFocus()
             onDone?.invoke()
         }
+
+        // Failsafe: if TTS doesn't complete within 8 seconds, abandon focus
+        mainHandler.postDelayed({
+            if (tts?.isSpeaking == true) {
+                Log.w("BadgerService", "TTS stuck, forcing stop")
+                tts?.stop()
+            }
+            abandonAudioFocus()
+        }, 8_000)
     }
 
     // ── Push notification helpers ─────────────────────────────────────────────
@@ -568,7 +602,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 // Heartbeat: poll every 10s — detects changes even if realtime events are missed
                 while (true) {
-                    delay(1_000L)
+                    delay(10_000L)
                     val currentStatus = channel.status.value
                     if (currentStatus != io.github.jan.supabase.realtime.RealtimeChannel.Status.SUBSCRIBED) {
                         Log.w("BadgerService", "Realtime channel dropped (status=$currentStatus), reconnecting...")
