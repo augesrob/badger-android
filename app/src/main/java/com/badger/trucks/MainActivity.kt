@@ -45,6 +45,11 @@ import com.badger.trucks.ui.login.LoginScreen
 import com.badger.trucks.ui.movement.MovementScreen
 import com.badger.trucks.ui.settings.SettingsScreen
 import com.badger.trucks.ui.shiftsetup.ShiftSetupScreen
+import com.badger.trucks.ui.weather.WeatherScreen
+import com.badger.trucks.data.OpenMeteoCurrentResponse
+import com.badger.trucks.data.BadgerRepo
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.updater.AppUpdater
 import com.badger.trucks.util.RemoteLogger
@@ -192,6 +197,7 @@ private fun SplashScreen() {
 enum class Tab(val label: String, val emoji: String, val requiredPage: String, val isLive: Boolean = false) {
     Shift   ("Shift Setup", "🖨️", "printroom"),
     Live    ("Live",        "🚚", "movement",       isLive = true),
+    Weather ("Weather",     "🌤️", "movement"),      // accessible to anyone with movement access
     Chat    ("Chat",        "💬", "chat"),
     Settings("Settings",   "⚙️", "notifications"),
 }
@@ -205,6 +211,40 @@ fun BadgerAccessMain(profile: UserProfile) {
 
     var currentTab        by remember { mutableStateOf(startTab) }
     var showUpdateBanner  by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
+
+    // Door status for weather tab color (green=open, red=closed)
+    var doorsOpen by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        // Check door status periodically for tab color
+        while (true) {
+            try {
+                val rules = BadgerRepo.getWeatherRules().filter { it.isActive }
+                val curText = io.ktor.client.HttpClient().get(
+                    "https://api.open-meteo.com/v1/forecast?latitude=43.7730&longitude=-88.4471" +
+                    "&current=temperature_2m,dew_point_2m&temperature_unit=fahrenheit&timezone=America/Chicago"
+                ).bodyAsText()
+                val resp = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    .decodeFromString<OpenMeteoCurrentResponse>(curText)
+                resp.current?.let { c ->
+                    val dewPt = Math.round(c.dew_point_2m).toInt()
+                    val temp = Math.round(c.temperature_2m).toInt()
+                    var action = "open"
+                    for (rule in rules) {
+                        val triggered = when (rule.ruleType) {
+                            "dew_point_min" -> dewPt >= rule.threshold
+                            "dew_point_max" -> dewPt <= rule.threshold
+                            "temp_min" -> temp >= rule.threshold
+                            "temp_max" -> temp <= rule.threshold
+                            else -> false
+                        }
+                        if (triggered) { action = rule.doorAction; break }
+                    }
+                    doorsOpen = action == "open"
+                }
+            } catch (_: Exception) {}
+            kotlinx.coroutines.delay(5 * 60 * 1000L)
+        }
+    }
 
     // Unread chat badge from service
     val unreadCounts by BadgerService.unreadCounts.collectAsState()
@@ -353,6 +393,7 @@ fun BadgerAccessMain(profile: UserProfile) {
             when (tab) {
                 Tab.Shift    -> ShiftSetupScreen(profile, resetCounter)
                 Tab.Live     -> MovementScreen()
+                Tab.Weather  -> WeatherScreen()
                 Tab.Chat     -> ChatScreen(profile = profile)
                 Tab.Settings -> SettingsScreen(profile = profile, resetCounter)
             }
@@ -369,7 +410,11 @@ fun BadgerAccessMain(profile: UserProfile) {
             ) {
                 visibleTabs.forEach { tab ->
                     val active     = currentTab == tab
-                    val tintColor  = if (tab.isLive) Green500 else Amber500
+                    val tintColor  = when {
+                        tab == Tab.Weather -> if (doorsOpen) Green500 else Red500
+                        tab.isLive -> Green500
+                        else -> Amber500
+                    }
                     val tabUnread  = if (tab == Tab.Chat) totalUnread else 0
 
                     Column(

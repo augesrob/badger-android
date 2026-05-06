@@ -218,3 +218,89 @@ fun doorStatusColor(status: String): Long = when (status) {
 // Parse a hex color string (#RRGGBB or #AARRGGBB) into a Compose-compatible Long
 fun parseHexColor(hex: String, fallback: Long = 0xFF6B7280): Long =
     try { android.graphics.Color.parseColor(hex).toLong() and 0xFFFFFFFFL or 0xFF000000L } catch (_: Exception) { fallback }
+
+// ===== WEATHER =====
+@Serializable
+data class WeatherRule(
+    val id: Int = 0,
+    @SerialName("rule_name") val ruleName: String = "",
+    @SerialName("rule_type") val ruleType: String = "",
+    val threshold: Double = 0.0,
+    @SerialName("door_action") val doorAction: String = "open",
+    val priority: Int = 0,
+    @SerialName("is_active") val isActive: Boolean = true,
+    val description: String? = null,
+)
+
+@Serializable
+data class WeatherConfig(
+    val id: Int = 1,
+    @SerialName("zip_code") val zipCode: String = "54935",
+    @SerialName("location_name") val locationName: String = "Fond du Lac, WI",
+)
+
+// Open-Meteo API response models
+@Serializable
+data class OpenMeteoCurrentResponse(
+    val current: OpenMeteoCurrent? = null,
+)
+@Serializable
+data class OpenMeteoCurrent(
+    val temperature_2m: Double = 0.0,
+    val relative_humidity_2m: Double = 0.0,
+    val dew_point_2m: Double = 0.0,
+    val apparent_temperature: Double = 0.0,
+    val wind_speed_10m: Double = 0.0,
+    val wind_direction_10m: Double = 0.0,
+    val weather_code: Int = 0,
+    val surface_pressure: Double = 0.0,
+)
+
+@Serializable
+data class OpenMeteoHourlyResponse(
+    val hourly: OpenMeteoHourly? = null,
+)
+@Serializable
+data class OpenMeteoHourly(
+    val time: List<String> = emptyList(),
+    val temperature_2m: List<Double> = emptyList(),
+    val relative_humidity_2m: List<Double> = emptyList(),
+    val dew_point_2m: List<Double> = emptyList(),
+    val apparent_temperature: List<Double> = emptyList(),
+    val precipitation_probability: List<Int> = emptyList(),
+    val weather_code: List<Int> = emptyList(),
+    val wind_speed_10m: List<Double> = emptyList(),
+)
+
+@Serializable
+data class OpenMeteoMinutelyResponse(
+    val minutely_15: OpenMeteoMinutely? = null,
+)
+@Serializable
+data class OpenMeteoMinutely(
+    val time: List<String> = emptyList(),
+    val precipitation: List<Double> = emptyList(),
+    val weather_code: List<Int> = emptyList(),
+)
+
+fun weatherCodeToIcon(code: Int): String = when {
+    code == 0 -> "☀️"; code <= 2 -> "⛅"; code == 3 -> "☁️"
+    code <= 48 -> "🌫️"; code <= 55 -> "🌦️"; code <= 65 -> "🌧️"
+    code <= 67 -> "🧊"; code <= 77 -> "🌨️"; code <= 82 -> "🌧️"
+    code <= 86 -> "❄️"; code >= 95 -> "⛈️"; else -> "🌤️"
+}
+
+fun weatherCodeToText(code: Int): String = when (code) {
+    0 -> "Clear"; 1 -> "Mostly Clear"; 2 -> "Partly Cloudy"; 3 -> "Overcast"
+    45 -> "Foggy"; 48 -> "Freezing Fog"; 51 -> "Light Drizzle"; 53 -> "Drizzle"
+    55 -> "Heavy Drizzle"; 61 -> "Light Rain"; 63 -> "Rain"; 65 -> "Heavy Rain"
+    66 -> "Freezing Rain"; 71 -> "Light Snow"; 73 -> "Snow"; 75 -> "Heavy Snow"
+    80 -> "Light Showers"; 81 -> "Showers"; 82 -> "Heavy Showers"
+    85 -> "Snow Showers"; 95 -> "Thunderstorm"; 96 -> "T-Storm w/ Hail"
+    else -> "Unknown"
+}
+
+fun degToDir(deg: Double): String {
+    val dirs = listOf("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW")
+    return dirs[(Math.round(deg / 22.5).toInt()) % 16]
+}

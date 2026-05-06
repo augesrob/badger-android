@@ -371,4 +371,15 @@ object BadgerRepo {
             .select { limit(1) }
             .decodeList<kotlinx.serialization.json.JsonObject>()
     }
+
+    // ===== WEATHER RULES =====
+    suspend fun getWeatherRules(): List<WeatherRule> =
+        client.postgrest["weather_rules"]
+            .select { order("priority", Order.DESCENDING) }
+            .decodeList()
+
+    suspend fun getWeatherConfig(): WeatherConfig? =
+        client.postgrest["weather_config"]
+            .select()
+            .decodeSingleOrNull()
 }

@@ -459,21 +459,53 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
-        if (ttsEnabled && ttsReady && ttsOn) {
-            val boostLevel = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
-            if (boostLevel != NotificationPrefsStore.VOLUME_BOOST_OFF) {
-                audioManager?.let { am ->
-                    am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
-                }
-            }
-            val uttId = "badger_${System.currentTimeMillis()}"
-            if (onDone != null) ttsCallbacks[uttId] = onDone
-            lastSpeakTime = System.currentTimeMillis()
-            requestAudioFocus()
-            tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
-        } else {
+        if (!ttsEnabled || !ttsOn) { onDone?.invoke(); return }
+
+        // Re-init TTS if engine died (Android reclaims it in background)
+        if (!ttsReady || tts == null) {
+            Log.w("BadgerService", "TTS not ready, re-initializing for: $text")
+            tts?.shutdown()
+            ttsCallbacks.clear()
+            ttsReady = false
+            tts = TextToSpeech(this, this)
             onDone?.invoke()
+            return
         }
+
+        val boostLevel = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_VOLUME_BOOST, NotificationPrefsStore.VOLUME_BOOST_OFF)
+        if (boostLevel != NotificationPrefsStore.VOLUME_BOOST_OFF) {
+            audioManager?.let { am ->
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
+            }
+        }
+        val uttId = "badger_${System.currentTimeMillis()}"
+        if (onDone != null) ttsCallbacks[uttId] = onDone
+        lastSpeakTime = System.currentTimeMillis()
+        requestAudioFocus()
+
+        val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
+        if (result != TextToSpeech.SUCCESS) {
+            Log.e("BadgerService", "TTS speak() failed ($result) for: $text — reinitializing")
+            ttsCallbacks.remove(uttId)
+            abandonAudioFocus()
+            // Engine is broken, reinit
+            tts?.shutdown()
+            ttsCallbacks.clear()
+            ttsReady = false
+            tts = TextToSpeech(this, this)
+            onDone?.invoke()
+            return
+        }
+
+        // Failsafe: if TTS doesn't finish within 10s, force stop and release focus
+        mainHandler.postDelayed({
+            if (tts?.isSpeaking == true) {
+                Log.w("BadgerService", "TTS stuck on: $text — forcing stop")
+                tts?.stop()
+            }
+            abandonAudioFocus()
+            ttsCallbacks.remove(uttId)?.invoke()
+        }, 10_000)
     }
 
     // â”€â”€ Push notification helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -644,10 +676,21 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     }
 
                     // TTS watchdog -- reinit if engine silently died
-                    if (ttsEnabled && !ttsReady) {
-                        RemoteLogger.w("BadgerService", "TTS watchdog: engine dead, reinitializing")
-                        tts?.stop(); tts?.shutdown(); ttsCallbacks.clear(); ttsReady = false
-                        tts = TextToSpeech(this@BadgerService, this@BadgerService)
+                    // Check both ttsReady flag AND whether speak() actually works
+                    if (ttsEnabled) {
+                        if (!ttsReady || tts == null) {
+                            RemoteLogger.w("BadgerService", "TTS watchdog: engine dead (ttsReady=$ttsReady), reinitializing")
+                            tts?.stop(); tts?.shutdown(); ttsCallbacks.clear(); ttsReady = false
+                            tts = TextToSpeech(this@BadgerService, this@BadgerService)
+                        } else if (lastSpeakTime > 0 && System.currentTimeMillis() - lastSpeakTime > 120_000) {
+                            // If last speak was 2+ minutes ago, test the engine with a silent check
+                            val testResult = tts?.speak("", TextToSpeech.QUEUE_ADD, null, "watchdog_test")
+                            if (testResult != TextToSpeech.SUCCESS) {
+                                RemoteLogger.w("BadgerService", "TTS watchdog: engine unresponsive, reinitializing")
+                                tts?.stop(); tts?.shutdown(); ttsCallbacks.clear(); ttsReady = false
+                                tts = TextToSpeech(this@BadgerService, this@BadgerService)
+                            }
+                        }
                     }
 
                     // Silent cache sync -- no TTS/notifications
