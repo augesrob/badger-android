@@ -152,7 +152,35 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:ptt_wakelock").also { it.acquire() }
 
         NotificationHelper.createAllChannels(this)
-        startForeground(NOTIF_ID, buildServiceNotification())
+
+        // Android 14+ can block FGS with microphone type after force-close.
+        // Fall back to dataSync-only if that happens.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIF_ID, buildServiceNotification(),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            } else {
+                startForeground(NOTIF_ID, buildServiceNotification())
+            }
+        } catch (e: SecurityException) {
+            Log.w("BadgerService", "FGS microphone blocked, falling back to dataSync: ${e.message}")
+            RemoteLogger.w("BadgerService", "FGS microphone blocked — starting without mic FGS type")
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForeground(NOTIF_ID, buildServiceNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                } else {
+                    startForeground(NOTIF_ID, buildServiceNotification())
+                }
+            } catch (e2: Exception) {
+                Log.e("BadgerService", "FGS start failed completely: ${e2.message}")
+                RemoteLogger.e("BadgerService", "FGS start failed: ${e2.message}")
+                stopSelf()
+                return
+            }
+        }
 
         tts = TextToSpeech(this, this)
 

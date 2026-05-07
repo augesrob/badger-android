@@ -132,15 +132,32 @@ class MainActivity : FragmentActivity() {
     }
 
     fun restartService() {
-        stopService(Intent(this, BadgerService::class.java))
-        ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
-        RemoteLogger.i("MainActivity", "BadgerService restarted (mic=${hasMicPermission()})")
+        try {
+            stopService(Intent(this, BadgerService::class.java))
+        } catch (_: Exception) {}
+        try {
+            ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+            RemoteLogger.i("MainActivity", "BadgerService restarted (mic=${hasMicPermission()})")
+        } catch (e: Exception) {
+            RemoteLogger.e("MainActivity", "BadgerService restart failed: ${e.message}")
+            try { startService(Intent(this, BadgerService::class.java)) } catch (_: Exception) {}
+        }
     }
 
     private fun startBadgerService() {
         if (!BadgerService.isRunning) {
-            ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
-            RemoteLogger.i("MainActivity", "BadgerService started (mic=${hasMicPermission()})")
+            try {
+                ContextCompat.startForegroundService(this, Intent(this, BadgerService::class.java))
+                RemoteLogger.i("MainActivity", "BadgerService started (mic=${hasMicPermission()})")
+            } catch (e: Exception) {
+                RemoteLogger.e("MainActivity", "BadgerService start failed: ${e.message}")
+                // Try again as a regular service
+                try {
+                    startService(Intent(this, BadgerService::class.java))
+                } catch (e2: Exception) {
+                    RemoteLogger.e("MainActivity", "BadgerService fallback start also failed: ${e2.message}")
+                }
+            }
         }
     }
 
