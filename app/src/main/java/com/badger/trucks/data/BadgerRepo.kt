@@ -26,7 +26,7 @@ object BadgerRepo {
             val result = client.postgrest["loading_doors"]
                 .select { order("sort_order", Order.ASCENDING) }
                 .decodeList<LoadingDoor>()
-            RemoteLogger.d("BadgerRepo", "getLoadingDoors OK â€” ${result.size} doors")
+            RemoteLogger.d("BadgerRepo", "getLoadingDoors OK â€" ${result.size} doors")
             result
         } catch (e: Exception) {
             RemoteLogger.e("BadgerRepo", "getLoadingDoors FAILED: ${e.message}")
@@ -38,7 +38,7 @@ object BadgerRepo {
         try {
             client.postgrest["loading_doors"]
                 .update({ set("door_status", status) }) { filter { eq("id", id) } }
-            RemoteLogger.i("BadgerRepo", "updateDoorStatus OK â€” id=$id status=$status")
+            RemoteLogger.i("BadgerRepo", "updateDoorStatus OK â€" id=$id status=$status")
         } catch (e: Exception) {
             RemoteLogger.e("BadgerRepo", "updateDoorStatus FAILED id=$id: ${e.message}")
             throw e
@@ -50,13 +50,13 @@ object BadgerRepo {
             .update({ set("dock_lock_status", status) }) { filter { eq("id", id) } }
     }
 
-    // ===== DOCK LOCK STATUS VALUES (dynamic â€” managed in Admin) =====
+    // ===== DOCK LOCK STATUS VALUES (dynamic â€" managed in Admin) =====
     suspend fun getDockLockStatusValues(): List<DockLockStatusValue> =
         client.postgrest["dock_lock_status_values"]
             .select { filter { eq("is_active", true) }; order("sort_order", Order.ASCENDING) }
             .decodeList()
 
-    // ===== DOOR STATUS VALUES (dynamic â€” managed in Admin) =====
+    // ===== DOOR STATUS VALUES (dynamic â€" managed in Admin) =====
     suspend fun getDoorStatusValues(): List<DoorStatusValue> =
         client.postgrest["door_status_values"]
             .select { filter { eq("is_active", true) }; order("sort_order", Order.ASCENDING) }
@@ -73,16 +73,16 @@ object BadgerRepo {
             .decodeList()
 
     suspend fun upsertPrintroomEntry(entry: PrintroomEntry): PrintroomEntry {
-        // Strip joined fields â€” only send columns that exist in the table
+        // Strip joined fields â€" only send columns that exist in the table
         val clean = entry.copy(loadingDoor = null)
         return if (clean.id == 0) {
-            // New entry â€” use insert so Supabase generates the id
+            // New entry â€" use insert so Supabase generates the id
             // (upsert with id=0 hits a conflict or inserts a bogus row)
             client.postgrest["printroom_entries"]
                 .insert(clean) { select() }
                 .decodeSingle()
         } else {
-            // Existing entry â€” update in place
+            // Existing entry â€" update in place
             client.postgrest["printroom_entries"]
                 .upsert(clean) { select() }
                 .decodeSingle()
@@ -124,7 +124,7 @@ object BadgerRepo {
             val result = client.postgrest["live_movement"]
                 .select(Columns.raw("*, status_values(status_name, status_color)"))
                 .decodeList<LiveMovement>()
-            RemoteLogger.d("BadgerRepo", "getLiveMovement OK â€” ${result.size} trucks")
+            RemoteLogger.d("BadgerRepo", "getLiveMovement OK â€" ${result.size} trucks")
             result
         } catch (e: Exception) {
             RemoteLogger.e("BadgerRepo", "getLiveMovement FAILED: ${e.message}")
@@ -149,7 +149,7 @@ object BadgerRepo {
         try {
             client.postgrest["live_movement"]
                 .update({ set("status_id", statusId) }) { filter { eq("truck_number", truckNumber) } }
-            RemoteLogger.i("BadgerRepo", "updateMovementStatus OK â€” truck=$truckNumber statusId=$statusId")
+            RemoteLogger.i("BadgerRepo", "updateMovementStatus OK â€" truck=$truckNumber statusId=$statusId")
         } catch (e: Exception) {
             RemoteLogger.e("BadgerRepo", "updateMovementStatus FAILED truck=$truckNumber: ${e.message}")
             throw e
@@ -327,7 +327,7 @@ object BadgerRepo {
                 .select { filter { eq("role_name", role) } }
                 .decodeList<kotlinx.serialization.json.JsonObject>()
             val row = result.firstOrNull() ?: return emptyMap()
-            // pages and features are JSON arrays â€” parse them
+            // pages and features are JSON arrays â€" parse them
             val pages = (row["pages"] as? kotlinx.serialization.json.JsonArray)
                 ?.map { (it as kotlinx.serialization.json.JsonPrimitive).content } ?: emptyList()
             pages.associateWith { true }
@@ -340,7 +340,7 @@ object BadgerRepo {
     // ===== REALTIME =====
     fun realtimeChannel(name: String) = client.channel(name)
 
-    fun removeChannel(channel: io.github.jan.supabase.realtime.RealtimeChannel) =
+    suspend fun removeChannel(channel: io.github.jan.supabase.realtime.RealtimeChannel) =
         client.realtime.removeChannel(channel)
 
     // ===== HWID AUTO-LOGIN =====
