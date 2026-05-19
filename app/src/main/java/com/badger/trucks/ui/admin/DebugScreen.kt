@@ -266,6 +266,15 @@ fun DebugScreen() {
             }
         }
 
+        OutlinedButton(
+            onClick = { RemoteLogger.clearLocalLog(); logs = emptyList() },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text("Clear Log", fontSize = 12.sp)
+        }
+
         if (remoteLogging) {
             Text(
                 "Logs also visible at badger.augesrob.net/admin › Mobile Debug",
