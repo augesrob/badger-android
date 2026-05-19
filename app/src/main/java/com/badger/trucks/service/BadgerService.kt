@@ -129,9 +129,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // Audio focus
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null  // API 26+
+    private var audioFocusHeld    = false
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         // When we gain focus back (shouldn't happen normally), log it
         // Other apps auto-resume when we ABANDON focus via abandonAudioFocus()
+        if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS) audioFocusHeld = false
         Log.d("BadgerService", "Audio focus change: $focusChange")
     }
 
@@ -310,6 +312,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // â”€â”€ Audio Focus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun requestAudioFocus() {
+        if (audioFocusHeld) return
         val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
             NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE) // default to exclusive â€” TikTok ignores transient
         if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
@@ -330,7 +333,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 .setAcceptsDelayedFocusGain(false)
                 .setWillPauseWhenDucked(true) // force pause rather than duck
                 .build()
-                .also { audioManager?.requestAudioFocus(it) }
+                .also { val r = audioManager?.requestAudioFocus(it); if (r == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) audioFocusHeld = true }
         } else {
             @Suppress("DEPRECATION")
             audioManager?.requestAudioFocus(audioFocusListener, AudioManager.STREAM_VOICE_CALL, focusType)
@@ -338,6 +341,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun abandonAudioFocus() {
+        audioFocusHeld = false
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
@@ -534,10 +538,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
         // Failsafe: if TTS doesn't finish within 10s, force stop and release focus
         mainHandler.postDelayed({
-            if (tts?.isSpeaking == true) {
-                Log.w("BadgerService", "TTS stuck on: $text — forcing stop")
-                tts?.stop()
-            }
+            if (tts?.isSpeaking == true) Log.w("BadgerService", "TTS queue still running at 10s mark -- not stopping")
             if (tts?.isSpeaking != true) abandonAudioFocus()
             ttsCallbacks.remove(uttId)?.invoke()
         }, 10_000)
