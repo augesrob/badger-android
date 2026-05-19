@@ -11,6 +11,11 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.content.BroadcastReceiver
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -128,6 +133,36 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     // Audio focus
     private var audioManager: AudioManager? = null
+    private var connectivityManager: ConnectivityManager? = null
+
+    // Reconnect WebSocket when network comes back (Doze exit, WiFi switch, etc.)
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            scope.launch {
+                delay(1500)
+                if (realtimeChannel?.status?.value?.name != "SUBSCRIBED") {
+                    RemoteLogger.w("BadgerService", "Network available -- WebSocket not SUBSCRIBED, reconnecting")
+                    startRealtimeSync()
+                }
+            }
+        }
+    }
+
+    // Reconnect when device exits Doze mode
+    private val dozeExitReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isDeviceIdleMode) {
+                scope.launch {
+                    delay(500)
+                    if (realtimeChannel?.status?.value?.name != "SUBSCRIBED") {
+                        RemoteLogger.w("BadgerService", "Doze exit -- WebSocket not SUBSCRIBED, reconnecting")
+                        startRealtimeSync()
+                    }
+                }
+            }
+        }
+    }
     private var audioFocusRequest: AudioFocusRequest? = null  // API 26+
     private var audioFocusHeld    = false
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
@@ -204,6 +239,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
 
         startRealtimeSync()
+
+        // Register network and Doze-exit listeners so we reconnect immediately
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val netReq = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+        try { connectivityManager?.registerNetworkCallback(netReq, networkCallback) } catch (_: Exception) {}
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            registerReceiver(dozeExitReceiver,
+                android.content.IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED))
+        }
         scope.launch { refreshVoiceData() }
         Log.d("BadgerService", "Service created")
         RemoteLogger.i("BadgerService", "Service started â€” URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
@@ -276,6 +321,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         abandonAudioFocus()
         loudnessEnhancer?.release()
         loudnessEnhancer = null
+        try { connectivityManager?.unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try { unregisterReceiver(dozeExitReceiver) } catch (_: Exception) {}
+        }
         scope.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
     }
