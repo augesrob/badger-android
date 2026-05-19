@@ -64,7 +64,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
         val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
 
-        // Live truck/door data â€" updated optimistically on voice commands
+        // Live truck/door data â€” updated optimistically on voice commands
         private val _liveTrucks          = MutableStateFlow<List<LiveMovement>>(emptyList())
         private val _liveDoors           = MutableStateFlow<List<LoadingDoor>>(emptyList())
         private val _liveDoorStatusValues     = MutableStateFlow<List<DoorStatusValue>>(emptyList())
@@ -74,7 +74,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val liveDoorStatusValues:    StateFlow<List<DoorStatusValue>>       = _liveDoorStatusValues.asStateFlow()
         val liveDockLockStatusValues: StateFlow<List<DockLockStatusValue>>  = _liveDockLockStatusValues.asStateFlow()
 
-        // Unread chat tracking â€" roomId -> unread count
+        // Unread chat tracking â€” roomId -> unread count
         private val _unreadCounts   = MutableStateFlow<Map<Int, Int>>(emptyMap())
         private val _pendingRoomId  = MutableStateFlow<Int?>(null)   // room to auto-open
         val unreadCounts: StateFlow<Map<Int, Int>> = _unreadCounts.asStateFlow()
@@ -148,7 +148,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private val knownDoorStatus = mutableMapOf<String, String?>()
     private val knownPreshift   = mutableMapOf<Int, Pair<String?, String?>>()
 
-    // â"€â"€ Lifecycle â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     override fun onCreate() {
         super.onCreate()
@@ -195,7 +195,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             mgr.onIncoming = {
                 _pttIncoming.value = true
                 RemoteLogger.i("PTT", "Incoming PTT message received")
-                NotificationHelper.postNotification(this, NotificationHelper.CHANNEL_SYSTEM, "ðŸ"» Incoming PTT", "Someone is talking on the radio", "ptt_incoming")
+                NotificationHelper.postNotification(this, NotificationHelper.CHANNEL_SYSTEM, "ðŸ“» Incoming PTT", "Someone is talking on the radio", "ptt_incoming")
             }
             mgr.onDone = { _pttIncoming.value = false }
             mgr.startListening()
@@ -204,7 +204,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         startRealtimeSync()
         scope.launch { refreshVoiceData() }
         Log.d("BadgerService", "Service created")
-        RemoteLogger.i("BadgerService", "Service started â€" URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
+        RemoteLogger.i("BadgerService", "Service started â€” URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -261,7 +261,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _pttIncoming.value  = false
         pttManager?.destroy()
         commandRecognizer?.destroy()
-        // unsubscribe() is suspend â€" run in a short-lived scope before cancelling main scope
+        // unsubscribe() is suspend â€” run in a short-lived scope before cancelling main scope
         val cleanupScope = CoroutineScope(Dispatchers.IO)
         cleanupScope.launch {
             try { realtimeChannel?.unsubscribe() } catch (_: Exception) {}
@@ -282,7 +282,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             // Use default TTS stream (STREAM_MUSIC) so LoudnessEnhancer and volume boost work.
-            // STREAM_VOICE_CALL is quieter and ignores LoudnessEnhancer â€" don't use it.
+            // STREAM_VOICE_CALL is quieter and ignores LoudnessEnhancer â€” don't use it.
             ttsParams = null
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
@@ -307,11 +307,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    // â"€â"€ Audio Focus â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ Audio Focus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun requestAudioFocus() {
         val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
-            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE) // default to exclusive â€" TikTok ignores transient
+            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE) // default to exclusive â€” TikTok ignores transient
         if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
         val focusType = when (mode) {
             NotificationPrefsStore.AUDIO_FOCUS_DUCK -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
@@ -351,7 +351,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    // â"€â"€ Voice command flow (manual trigger from mic FAB) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ Voice command flow (manual trigger from mic FAB) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun onManualVoiceTrigger() {
         if (_voiceProcessing.value) return
@@ -377,13 +377,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 val (feedback, spokenText) = when (result) {
                     is VoiceResult.Success -> "âœ… ${result.description}" to result.description
                     is VoiceResult.Error   -> "âŒ ${result.message}" to "Sorry, ${result.message}"
-                    VoiceResult.Unknown    -> "ðŸ¤" Didn't understand" to "I didn't understand that"
+                    VoiceResult.Unknown    -> "ðŸ¤” Didn't understand" to "I didn't understand that"
                 }
 
                 when (result) {
                     is VoiceResult.Success -> RemoteLogger.i("Voice", "âœ… ${result.description}")
-                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "âŒ ${result.message} â€" heard: \"$text\"")
-                    VoiceResult.Unknown    -> RemoteLogger.w("Voice", "ðŸ¤" Unknown: \"$text\"")
+                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "âŒ ${result.message} â€” heard: \"$text\"")
+                    VoiceResult.Unknown    -> RemoteLogger.w("Voice", "ðŸ¤” Unknown: \"$text\"")
                 }
 
                 // Optimistic UI update
@@ -490,7 +490,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
         }
     }
-    // â"€â"€ TTS â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ TTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
@@ -543,7 +543,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }, 10_000)
     }
 
-    // â"€â"€ Push notification helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ Push notification helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun canNotify(eventKey: String): Boolean {
         val eventOn   = NotificationPrefsStore.get(this, eventKey)
@@ -555,10 +555,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         NotificationHelper.postNotification(this, channelId, title, body, tag)
     }
 
-    // â"€â"€ Realtime data sync â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ Realtime data sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun startRealtimeSync() {
-        if (realtimeRestarting) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped â€" already restarting"); return }
+        if (realtimeRestarting) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped â€” already restarting"); return }
         realtimeRestarting = true
         realtimeSyncJob?.cancel()
         realtimeSyncJob = scope.launch {
@@ -576,19 +576,19 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 BadgerRepo.getLoadingDoors().forEach { knownDoorStatus[it.doorName]  = it.doorStatus }
                 BadgerRepo.getStagingDoors().forEach { knownPreshift[it.id]          = Pair(it.inFront, it.inBack) }
 
-                val channelName = "badger-svc-${java.util.UUID.randomUUID()}"
+                val channelName = "badger-svc-${java.util.UUID.randomUUID()}”
                 val channel = BadgerRepo.realtimeChannel(channelName)
                 realtimeChannel = channel
 
                 // Guard: Supabase WebSocket reconnect can auto-subscribe a newly created channel
                 // before we register flows, causing postgresChangeFlow to throw IllegalStateException.
                 if (channel.status.value.name != "UNSUBSCRIBED") {
-                    RemoteLogger.w("BadgerService", "Channel $channelName already in ${channel.status.value.name} -- unsubscribing before flow registration")
+                    RemoteLogger.w(“BadgerService”, “Channel $channelName already in ${channel.status.value.name} — unsubscribing before flow registration”)
                     try { channel.unsubscribe() } catch (_: Exception) {}
                     delay(300)
                 }
 
-                // Register ALL flows before subscribe() - use launchIn(this) so they
+                // Register ALL flows before subscribe() — use launchIn(this) so they
                 // are children of this job and cancel together, preventing AtomicMutableList race
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach { action ->
                     try {
@@ -667,7 +667,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         if (changes.isNotEmpty()) {
                             speak("Preshift updated")
                             if (canNotify(NotificationPrefsStore.KEY_PRESHIFT))
-                                pushNotif(NotificationHelper.CHANNEL_PRESHIFT, "ðŸ"‹ PreShift Updated", changes.joinToString("\n"), "preshift_change")
+                                pushNotif(NotificationHelper.CHANNEL_PRESHIFT, "ðŸ“‹ PreShift Updated", changes.joinToString("\n"), "preshift_change")
                         }
                     } catch (e: Exception) { Log.e("BadgerService", "PreShift refresh: ${e.message}") }
                 }.launchIn(this)
@@ -682,8 +682,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues: ${e.message}") }
                 }.launchIn(this)
 
-                // Chat - separate channel subscribed before main to avoid ordering issues
-                val chatChannel = BadgerRepo.realtimeChannel("badger-chat-${java.util.UUID.randomUUID()}")
+                // Chat — separate channel subscribed before main to avoid ordering issues
+                val chatChannel = BadgerRepo.realtimeChannel("badger-chat-${java.util.UUID.randomUUID()}”)
                 chatRealtimeChannel = chatChannel
                 chatChannel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
                     try {
@@ -697,7 +697,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 chatChannel.subscribe()
 
                 channel.subscribe(blockUntilSubscribed = true)
-                RemoteLogger.i("BadgerService", "Realtime subscribed OK â€" $channelName status=${channel.status.value.name}")
+                RemoteLogger.i("BadgerService", "Realtime subscribed OK â€” $channelName status=${channel.status.value.name}")
 
                 // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh
                 while (isActive) {
@@ -751,7 +751,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    // â"€â"€ Foreground notification â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // â”€â”€ Foreground notification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private fun buildServiceNotification(): Notification {
         val openIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -763,12 +763,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_SERVICE)
             .setContentTitle("ðŸ¦¡ Badger Live")
-            .setContentText("Say \"Badger\" to issue a command â€¢ TTS ${if (ttsEnabled) "ON ðŸ"Š" else "OFF ðŸ"‡"}")
+            .setContentText("Say \"Badger\" to issue a command â€¢ TTS ${if (ttsEnabled) "ON ðŸ”Š" else "OFF ðŸ”‡"}")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(android.R.drawable.ic_btn_speak_now, if (ttsEnabled) "ðŸ"Š TTS ON" else "ðŸ"‡ TTS OFF", ttsToggleIntent)
+            .addAction(android.R.drawable.ic_btn_speak_now, if (ttsEnabled) "ðŸ”Š TTS ON" else "ðŸ”‡ TTS OFF", ttsToggleIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
             .build()
     }
