@@ -6,6 +6,7 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import kotlinx.coroutines.flow.Flow
@@ -338,6 +339,9 @@ object BadgerRepo {
 
     // ===== REALTIME =====
     fun realtimeChannel(name: String) = client.channel(name)
+
+    fun removeChannel(channel: io.github.jan.supabase.realtime.RealtimeChannel) =
+        client.realtime.removeChannel(channel)
 
     // ===== HWID AUTO-LOGIN =====
 

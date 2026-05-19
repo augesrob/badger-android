@@ -100,7 +100,14 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private val scope        = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope        = CoroutineScope(
+        Dispatchers.IO + SupervisorJob() +
+        CoroutineExceptionHandler { _, e ->
+            if (e !is CancellationException) {
+                RemoteLogger.e("BadgerService", "Unhandled coroutine: ${e::class.simpleName}: ${e.message}")
+            }
+        }
+    )
     private val mainHandler  = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
     private var ttsReady       = false
@@ -560,8 +567,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 val oldChat = chatRealtimeChannel
                 realtimeChannel = null
                 chatRealtimeChannel = null
-                if (oldMain != null) try { oldMain.unsubscribe() } catch (_: Exception) {}
-                if (oldChat != null) try { oldChat.unsubscribe() } catch (_: Exception) {}
+                if (oldMain != null) { try { oldMain.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldMain) } catch (_: Exception) {} }
+                if (oldChat != null) { try { oldChat.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldChat) } catch (_: Exception) {} }
                 delay(500) // let supabase-kt internal state settle before registering new flows
                 realtimeRestarting = false
 
@@ -569,13 +576,20 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 BadgerRepo.getLoadingDoors().forEach { knownDoorStatus[it.doorName]  = it.doorStatus }
                 BadgerRepo.getStagingDoors().forEach { knownPreshift[it.id]          = Pair(it.inFront, it.inBack) }
 
-                val channelName = "badger-svc-${System.currentTimeMillis()}"
+                val channelName = “badger-svc-${java.util.UUID.randomUUID()}”
                 val channel = BadgerRepo.realtimeChannel(channelName)
                 realtimeChannel = channel
 
-                // Register ALL flows before subscribe() â€” use launchIn(this) so they
+                // Guard: Supabase WebSocket reconnect can auto-subscribe a newly created channel
+                // before we register flows, causing postgresChangeFlow to throw IllegalStateException.
+                if (channel.status.value.name != “UNSUBSCRIBED”) {
+                    RemoteLogger.w(“BadgerService”, “Channel $channelName already in ${channel.status.value.name} — unsubscribing before flow registration”)
+                    try { channel.unsubscribe() } catch (_: Exception) {}
+                    delay(300)
+                }
+
+                // Register ALL flows before subscribe() — use launchIn(this) so they
                 // are children of this job and cancel together, preventing AtomicMutableList race
-                // ALL flows registered before subscribe() — launchIn(this) = child of job
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach { action ->
                     try {
                         val record = when (action) {
@@ -668,8 +682,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues: ${e.message}") }
                 }.launchIn(this)
 
-                // Chat â€” separate channel subscribed before main to avoid ordering issues
-                val chatChannel = BadgerRepo.realtimeChannel("badger-chat-${System.currentTimeMillis()}")
+                // Chat — separate channel subscribed before main to avoid ordering issues
+                val chatChannel = BadgerRepo.realtimeChannel(“badger-chat-${java.util.UUID.randomUUID()}”)
                 chatRealtimeChannel = chatChannel
                 chatChannel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
                     try {
