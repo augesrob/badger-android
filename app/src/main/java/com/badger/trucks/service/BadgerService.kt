@@ -288,14 +288,14 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 override fun onStart(utteranceId: String?) {}
                 override fun onError(utteranceId: String?) {
                     utteranceId?.let { id ->
-                        abandonAudioFocus()
+                        if (tts?.isSpeaking != true) abandonAudioFocus()
                         ttsCallbacks.remove(id)?.invoke()
                     }
                 }
                 override fun onDone(utteranceId: String?) {
                     utteranceId?.let { id ->
                         mainHandler.postDelayed({
-                            abandonAudioFocus()
+                            if (tts?.isSpeaking != true) abandonAudioFocus()
                             ttsCallbacks.remove(id)?.invoke()
                         }, 600)
                     }
@@ -538,7 +538,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 Log.w("BadgerService", "TTS stuck on: $text — forcing stop")
                 tts?.stop()
             }
-            abandonAudioFocus()
+            if (tts?.isSpeaking != true) abandonAudioFocus()
             ttsCallbacks.remove(uttId)?.invoke()
         }, 10_000)
     }
