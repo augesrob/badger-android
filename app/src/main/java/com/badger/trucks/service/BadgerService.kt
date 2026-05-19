@@ -53,6 +53,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_STOP         = "com.badger.trucks.STOP_SERVICE"
         const val ACTION_APPLY_SETTINGS = "com.badger.trucks.APPLY_SETTINGS"
         const val ACTION_MANUAL_VOICE   = "com.badger.trucks.MANUAL_VOICE"
+        const val ACTION_KEEPALIVE    = "com.badger.trucks.KEEPALIVE"
+        const val KEEPALIVE_INTERVAL_MS = 15 * 60 * 1000L  // 15 min
+        const val KEEPALIVE_REQUEST_CODE = 42
 
         var ttsEnabled = true
         var isRunning  = false
@@ -239,6 +242,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
 
         startRealtimeSync()
+        scheduleKeepalive()
 
         // Register network and Doze-exit listeners so we reconnect immediately
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -274,7 +278,15 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
             ACTION_APPLY_SETTINGS -> applySettingsLive()
             ACTION_MANUAL_VOICE   -> onManualVoiceTrigger()
-            ACTION_STOP -> stopSelf()
+            ACTION_KEEPALIVE -> {
+                RemoteLogger.i("BadgerService", "Keepalive alarm fired -- service alive, rescheduling")
+                scheduleKeepalive()
+                if (realtimeChannel?.status?.value?.name != "SUBSCRIBED") {
+                    RemoteLogger.w("BadgerService", "Keepalive: WebSocket not SUBSCRIBED, reconnecting")
+                    startRealtimeSync()
+                }
+            }
+            ACTION_STOP -> { cancelKeepalive(); stopSelf() }
         }
         return START_STICKY
     }
@@ -287,18 +299,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // on Samsung devices that ignore stopWithTask.
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        RemoteLogger.w("BadgerService", "onTaskRemoved — scheduling restart")
-        val restartIntent = Intent(applicationContext, BadgerService::class.java)
-        val pending = android.app.PendingIntent.getService(
-            applicationContext, 1, restartIntent,
-            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val alarm = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
-        alarm.set(
-            android.app.AlarmManager.ELAPSED_REALTIME,
-            android.os.SystemClock.elapsedRealtime() + 1000,
-            pending
-        )
+        RemoteLogger.w("BadgerService", "onTaskRemoved -- rescheduling keepalive immediately")
+        scheduleKeepalive(delayMs = 2000)
     }
 
     override fun onDestroy() {
@@ -606,6 +608,31 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     // â”€â”€ Realtime data sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    private fun scheduleKeepalive(delayMs: Long = KEEPALIVE_INTERVAL_MS) {
+        val intent = Intent(this, BadgerService::class.java).apply { action = ACTION_KEEPALIVE }
+        val pending = android.app.PendingIntent.getService(
+            this, KEEPALIVE_REQUEST_CODE, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        val alarm = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            alarm.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                android.os.SystemClock.elapsedRealtime() + delayMs, pending)
+        } else {
+            alarm.setExact(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                android.os.SystemClock.elapsedRealtime() + delayMs, pending)
+        }
+        RemoteLogger.i("BadgerService", "Keepalive scheduled in ${delayMs/1000}s")
+    }
+
+    private fun cancelKeepalive() {
+        val intent = Intent(this, BadgerService::class.java).apply { action = ACTION_KEEPALIVE }
+        val pending = android.app.PendingIntent.getService(
+            this, KEEPALIVE_REQUEST_CODE, intent,
+            android.app.PendingIntent.FLAG_NO_CREATE or android.app.PendingIntent.FLAG_IMMUTABLE)
+        pending?.let { (getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager).cancel(it) }
+    }
 
     private fun startRealtimeSync() {
         if (realtimeRestarting) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped â€” already restarting"); return }
