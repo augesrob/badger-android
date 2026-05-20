@@ -615,15 +615,23 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             this, KEEPALIVE_REQUEST_CODE, intent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
         val alarm = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            alarm.setExactAndAllowWhileIdle(
-                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                android.os.SystemClock.elapsedRealtime() + delayMs, pending)
-        } else {
-            alarm.setExact(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                android.os.SystemClock.elapsedRealtime() + delayMs, pending)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                alarm.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + delayMs, pending)
+            } else {
+                alarm.setExact(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + delayMs, pending)
+            }
+            RemoteLogger.i("BadgerService", "Keepalive scheduled in ${delayMs/1000}s")
+        } catch (e: SecurityException) {
+            RemoteLogger.w("BadgerService", "Exact alarm blocked (${e.message}) — using inexact fallback")
+            try {
+                alarm.set(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + delayMs, pending)
+            } catch (_: Exception) {}
         }
-        RemoteLogger.i("BadgerService", "Keepalive scheduled in ${delayMs/1000}s")
     }
 
     private fun cancelKeepalive() {
@@ -647,7 +655,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 if (oldMain != null) { try { oldMain.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldMain) } catch (_: Exception) {} }
                 if (oldChat != null) { try { oldChat.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldChat) } catch (_: Exception) {} }
                 delay(500) // let supabase-kt internal state settle before registering new flows
-                realtimeRestarting = false
+                // realtimeRestarting stays true until subscribe() succeeds to block concurrent setup attempts
 
                 BadgerRepo.getLiveMovement().forEach { knownStatuses[it.truckNumber] = it.statusName }
                 BadgerRepo.getLoadingDoors().forEach { knownDoorStatus[it.doorName]  = it.doorStatus }
@@ -659,10 +667,20 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 // Guard: Supabase WebSocket reconnect can auto-subscribe a newly created channel
                 // before we register flows, causing postgresChangeFlow to throw IllegalStateException.
+                // Poll up to 3 s for the channel to reach UNSUBSCRIBED before registering flows.
                 if (channel.status.value.name != "UNSUBSCRIBED") {
-                    RemoteLogger.w("BadgerService", "Channel $channelName already in ${channel.status.value.name} — unsubscribing before flow registration")
+                    RemoteLogger.w("BadgerService", "Channel $channelName in ${channel.status.value.name} — unsubscribing before flow registration")
                     try { channel.unsubscribe() } catch (_: Exception) {}
-                    delay(300)
+                    var waited = 0
+                    while (channel.status.value.name != "UNSUBSCRIBED" && waited < 3000) {
+                        delay(200); waited += 200
+                    }
+                    if (channel.status.value.name != "UNSUBSCRIBED") {
+                        RemoteLogger.e("BadgerService", "Channel $channelName stuck in ${channel.status.value.name} after ${waited}ms — aborting setup")
+                        try { BadgerRepo.removeChannel(channel) } catch (_: Exception) {}
+                        realtimeChannel = null
+                        throw IllegalStateException("Channel stuck in ${channel.status.value.name}")
+                    }
                 }
 
                 // Register ALL flows before subscribe() — use launchIn(this) so they
@@ -774,7 +792,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 chatChannel.subscribe()
 
                 channel.subscribe(blockUntilSubscribed = true)
-                RemoteLogger.i("BadgerService", "Realtime subscribed OK â€” $channelName status=${channel.status.value.name}")
+                realtimeRestarting = false  // setup complete — allow reconnects from network/doze callbacks
+                RemoteLogger.i(“BadgerService”, “Realtime subscribed OK — $channelName status=${channel.status.value.name}”)
 
                 // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh
                 while (isActive) {
@@ -820,6 +839,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
 
             } catch (e: Exception) {
+                if (e is CancellationException) return@launch  // intentionally cancelled — don't retry, don't touch realtimeRestarting
                 realtimeRestarting = false
                 RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message}")
                 delay(10_000)

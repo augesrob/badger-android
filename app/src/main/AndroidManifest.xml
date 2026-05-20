@@ -17,6 +17,11 @@
     <!-- In-app updater -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Required for setExactAndAllowWhileIdle keepalive on Android 12+ (API 31+).
+         USE_EXACT_ALARM is the restricted form for Android 13+ (no user prompt needed for
+         media/alarm apps; this app qualifies as an always-on monitoring service). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
