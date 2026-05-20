@@ -792,8 +792,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 chatChannel.subscribe()
 
                 channel.subscribe(blockUntilSubscribed = true)
-                realtimeRestarting = false  // setup complete — allow reconnects from network/doze callbacks
-                RemoteLogger.i(“BadgerService”, “Realtime subscribed OK — $channelName status=${channel.status.value.name}”)
+                realtimeRestarting = false  // setup complete -- allow reconnects from network/doze callbacks
+                RemoteLogger.i(“BadgerService”, “Realtime subscribed OK -- $channelName status=${channel.status.value.name}”)
 
                 // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh
                 while (isActive) {
