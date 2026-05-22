@@ -193,6 +193,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        getSharedPreferences("badger_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("user_stopped_service", false).apply()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -279,6 +281,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             ACTION_APPLY_SETTINGS -> applySettingsLive()
             ACTION_MANUAL_VOICE   -> onManualVoiceTrigger()
             ACTION_KEEPALIVE -> {
+                val userStopped = getSharedPreferences("badger_prefs", android.content.Context.MODE_PRIVATE)
+                    .getBoolean("user_stopped_service", false)
+                if (userStopped) {
+                    RemoteLogger.i("BadgerService", "Keepalive suppressed -- user stopped service intentionally")
+                    return START_NOT_STICKY
+                }
                 RemoteLogger.i("BadgerService", "Keepalive alarm fired -- service alive, rescheduling")
                 scheduleKeepalive()
                 if (realtimeChannel?.status?.value?.name != "SUBSCRIBED") {
@@ -286,7 +294,13 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     startRealtimeSync()
                 }
             }
-            ACTION_STOP -> { cancelKeepalive(); stopSelf() }
+            ACTION_STOP -> {
+                getSharedPreferences("badger_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean("user_stopped_service", true).apply()
+                cancelKeepalive()
+                RemoteLogger.i("BadgerService", "User explicitly stopped service -- keepalive cancelled")
+                stopSelf()
+            }
         }
         return START_STICKY
     }
