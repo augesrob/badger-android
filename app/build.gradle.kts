@@ -29,7 +29,7 @@ android {
         buildConfigField("String", "SUPABASE_KEY",  "\"${secret("SUPABASE_KEY")}\"")
         buildConfigField("String", "GEMINI_API_KEY","\"${secret("GEMINI_API_KEY")}\"")
         buildConfigField("String", "GITHUB_TOKEN",  "\"${secret("GH_TOKEN")}\"")
-        buildConfigField("String", "LOGS_GITHUB_TOKEN", "\"${secret(\"LOGS_GITHUB_TOKEN\")}\"")  
+        buildConfigField("String", "LOGS_GITHUB_TOKEN", "\"${secret("LOGS_GITHUB_TOKEN")}\"")
     }
 
     signingConfigs {
