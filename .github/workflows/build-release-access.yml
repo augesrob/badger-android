@@ -7,6 +7,12 @@ on:
       - 'app/build.gradle.kts'
   workflow_dispatch:
 
+# Cancel any in-progress build for this branch when a new push arrives.
+# Only the latest commit ever gets fully built and released.
+concurrency:
+  group: badger-access-build
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -58,14 +64,18 @@ jobs:
           sed -i "s/versionCode = ${{ steps.version.outputs.current }}/versionCode = ${{ steps.version.outputs.new }}/" app/build.gradle.kts
           sed -i "s/versionName = \".*\"/versionName = \"${{ steps.version.outputs.new }}.0\"/" app/build.gradle.kts
 
-      - name: Commit version bump
+      - name: Commit and push version bump
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add app/build.gradle.kts
           git commit -m "chore: bump access versionCode to ${{ steps.version.outputs.new }} [skip ci]"
-          git pull --rebase origin badger-access
-          git push origin badger-access
+          # Push only the version bump commit -- fetch first so we can fast-forward
+          # onto whatever is on the remote, without bundling unrelated commits that
+          # would trigger a second workflow run.
+          git fetch origin badger-access
+          git rebase origin/badger-access
+          git push origin HEAD:badger-access
 
       - name: Make gradlew executable
         run: chmod +x gradlew
