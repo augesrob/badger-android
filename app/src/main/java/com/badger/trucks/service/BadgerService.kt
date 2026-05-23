@@ -289,6 +289,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
                 RemoteLogger.i("BadgerService", "Keepalive alarm fired -- service alive, rescheduling")
                 scheduleKeepalive()
+                scope.launch { com.badger.trucks.util.LogShipper.ship(applicationContext) }
                 if (realtimeChannel?.status?.value?.name != "SUBSCRIBED") {
                     RemoteLogger.w("BadgerService", "Keepalive: WebSocket not SUBSCRIBED, reconnecting")
                     startRealtimeSync()

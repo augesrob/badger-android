@@ -55,6 +55,12 @@ class BadgerApp : Application() {
                 RemoteLogger.e("CRASH", msg)
                 RemoteLogger.remoteEnabled = wasEnabled
 
+                // Ship logs immediately on crash (no wait for next keepalive)
+                kotlinx.coroutines.runBlocking {
+                    try { com.badger.trucks.util.LogShipper.ship(appContext) }
+                    catch (_: Exception) {}
+                }
+
                 Thread.sleep(1500)
             } catch (_: Exception) {
                 // Never let the crash handler itself crash
