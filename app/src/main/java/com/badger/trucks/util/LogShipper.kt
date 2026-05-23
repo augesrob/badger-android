@@ -34,9 +34,9 @@ object LogShipper {
 
     /** Call this from the keepalive handler (already on a background thread). */
     suspend fun ship(context: Context) = withContext(Dispatchers.IO) {
-        val token = BuildConfig.LOGS_GITHUB_TOKEN
+        val token = BuildConfig.GITHUB_TOKEN
         if (token.isBlank() || token == "null") {
-            Log.w(TAG, "No LOGS_GITHUB_TOKEN configured -- skipping ship")
+            Log.w(TAG, "No GITHUB_TOKEN configured -- skipping ship")
             return@withContext
         }
 
