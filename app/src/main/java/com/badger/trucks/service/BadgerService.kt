@@ -806,15 +806,17 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }.launchIn(this)
                 chatChannel.subscribe()
 
-                // subscribe() can hang indefinitely if the WebSocket is down, leaving
-                // realtimeRestarting=true forever. Timeout after 45s and rethrow as a
-                // plain Exception so the retry path resets the flag and tries again.
-                try {
-                    withTimeout(45_000L) {
-                        channel.subscribe(blockUntilSubscribed = true)
-                    }
-                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                    throw Exception("channel.subscribe timed out after 45s")
+                // subscribe(blockUntilSubscribed=true) uses NonCancellable internally so
+                // withTimeout() cannot interrupt it -- flag stays stuck forever.
+                // Fix: non-blocking subscribe() + poll delay(500) which IS cancellable.
+                channel.subscribe()
+                var subscribeWaited = 0
+                while (channel.status.value.name != "SUBSCRIBED" && subscribeWaited < 45_000) {
+                    delay(500)
+                    subscribeWaited += 500
+                }
+                if (channel.status.value.name != "SUBSCRIBED") {
+                    throw Exception("channel.subscribe timed out after 45s (status=${channel.status.value.name})")
                 }
                 realtimeRestarting = false  // setup complete -- allow reconnects from network/doze callbacks
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK -- $channelName status=${channel.status.value.name}")
