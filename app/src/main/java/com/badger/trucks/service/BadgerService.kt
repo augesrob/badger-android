@@ -113,6 +113,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         CoroutineExceptionHandler { _, e ->
             if (e !is CancellationException) {
                 RemoteLogger.e("BadgerService", "Unhandled coroutine: ${e::class.simpleName}: ${e.message}")
+                realtimeRestarting = false
             }
         }
     )
@@ -188,7 +189,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private val knownDoorStatus = mutableMapOf<String, String?>()
     private val knownPreshift   = mutableMapOf<Int, Pair<String?, String?>>()
 
-    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    // ── Lifecycle ─────────────────────────────────────────────────────────────────────────────────────
 
     override fun onCreate() {
         super.onCreate()
@@ -375,7 +376,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ── Audio Focus ──────────────────────────────────────────────────────────
+    // ── Audio Focus ──────────────────────────────────────────────────────────────────────
 
     private fun requestAudioFocus() {
         if (audioFocusHeld) return
@@ -421,7 +422,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ── Voice command flow (manual trigger from mic FAB) ──────────────────────
+    // ── Voice command flow (manual trigger from mic FAB) ──────────────────────────────
 
     private fun onManualVoiceTrigger() {
         if (_voiceProcessing.value) return
@@ -560,7 +561,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
         }
     }
-    // ── TTS ──────────────────────────────────────────────────────────────────
+    // ── TTS ──────────────────────────────────────────────────────────────────────────────────────
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
@@ -610,7 +611,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }, 10_000)
     }
 
-    // ── Push notification helpers ─────────────────────────────────────────────
+    // ── Push notification helpers ─────────────────────────────────────────────────
 
     private fun canNotify(eventKey: String): Boolean {
         val eventOn   = NotificationPrefsStore.get(this, eventKey)
@@ -622,7 +623,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         NotificationHelper.postNotification(this, channelId, title, body, tag)
     }
 
-    // ── Realtime data sync ────────────────────────────────────────────────────
+    // ── Realtime data sync ──────────────────────────────────────────────────────────────
 
     private fun scheduleKeepalive(delayMs: Long = KEEPALIVE_INTERVAL_MS) {
         val intent = Intent(this, BadgerService::class.java).apply { action = ACTION_KEEPALIVE }
@@ -874,7 +875,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ── Foreground notification ──────────────────────────────────────────────
+    // ── Foreground notification ──────────────────────────────────────────────────────
 
     private fun buildServiceNotification(): Notification {
         val openIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -885,7 +886,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             Intent(this, BadgerService::class.java).apply { action = ACTION_STOP }, PendingIntent.FLAG_IMMUTABLE)
 
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_SERVICE)
-            .setContentTitle("🦌 Badger Live")
+            .setContentTitle("🫌 Badger Live")
             .setContentText("Say \"Badger\" to issue a command • TTS ${if (ttsEnabled) "ON 🔊" else "OFF 🔇"}")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(openIntent)
