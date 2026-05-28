@@ -2,7 +2,7 @@ name: Build & Release APK (Access)
 
 on:
   push:
-    branches: [ badger-access ]
+    branches-ignore: [ badger-access ]
     paths-ignore:
       - 'app/build.gradle.kts'
   workflow_dispatch:
