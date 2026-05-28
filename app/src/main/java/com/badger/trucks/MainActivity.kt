@@ -227,7 +227,8 @@ fun BadgerAccessMain(profile: UserProfile) {
     val startTab    = if (Tab.Live in visibleTabs) Tab.Live else visibleTabs.first()
 
     var currentTab        by remember { mutableStateOf(startTab) }
-    var showUpdateBanner  by remember { mutableStateOf(MainActivity.pendingUpdate != null) }
+    var updateBannerDismissed by remember { mutableStateOf(false) }
+    val showUpdateBanner = MainActivity.pendingUpdate != null && !updateBannerDismissed
 
     // Door status for weather tab color (green=open, red=closed)
     var doorsOpen by remember { mutableStateOf(true) }
@@ -384,10 +385,10 @@ fun BadgerAccessMain(profile: UserProfile) {
                     ) {
                         Text("Update ${updateInfo.tagName} available", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Row {
-                            TextButton(onClick = { scope.launch { AppUpdater.downloadAndInstall(context, updateInfo) {} }; showUpdateBanner = false }) {
+                            TextButton(onClick = { scope.launch { AppUpdater.downloadAndInstall(context, updateInfo) {} }; updateBannerDismissed = true }) {
                                 Text("Install", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
-                            TextButton(onClick = { showUpdateBanner = false }) {
+                            TextButton(onClick = { updateBannerDismissed = true }) {
                                 Text("Later", color = Color.Black.copy(alpha = 0.55f), fontSize = 12.sp)
                             }
                         }
