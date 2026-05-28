@@ -29,10 +29,10 @@ import androidx.compose.ui.window.Dialog
 import com.badger.trucks.data.*
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.util.RemoteLogger
+import com.badger.trucks.util.safeLaunch
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.launch
-import com.badger.trucks.util.safeLaunch
 
 @Composable
 fun PrintRoomScreen(onBack: (() -> Unit)? = null) {
