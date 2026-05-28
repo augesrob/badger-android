@@ -36,6 +36,9 @@ import com.badger.trucks.voice.VoiceResult
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -113,7 +116,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         CoroutineExceptionHandler { _, e ->
             if (e !is CancellationException) {
                 RemoteLogger.e("BadgerService", "Unhandled coroutine: ${e::class.simpleName}: ${e.message}")
-                realtimeRestarting = false
+                realtimeRestarting.set(false)
             }
         }
     )
@@ -129,7 +132,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var realtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     private var chatRealtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     private var realtimeSyncJob: Job? = null
-    @Volatile private var realtimeRestarting = false
+    private val realtimeMutex     = Mutex()
+    private val realtimeRestarting = AtomicBoolean(false)
     private var wakeLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
@@ -659,15 +663,20 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startRealtimeSync() {
-        if (realtimeRestarting) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped — already restarting"); return }
-        realtimeRestarting = true
+        if (!realtimeRestarting.compareAndSet(false, true)) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped -- already restarting"); return }
         realtimeSyncJob?.cancel()
         realtimeSyncJob = scope.launch {
+            realtimeMutex.withLock {
             try {
                 val oldMain = realtimeChannel
                 val oldChat = chatRealtimeChannel
                 realtimeChannel = null
                 chatRealtimeChannel = null
+                // Wait 200ms for cancelled launchIn child flows to complete their
+                // supabase-kt callback cleanup before we touch the channel list.
+                // Without this delay, concurrent AtomicMutableList access causes
+                // IndexOutOfBoundsException (Issue #4).
+                delay(200)
                 if (oldMain != null) { try { oldMain.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldMain) } catch (_: Exception) {} }
                 if (oldChat != null) { try { oldChat.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldChat) } catch (_: Exception) {} }
                 delay(500) // let supabase-kt internal state settle before registering new flows
@@ -819,7 +828,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 if (channel.status.value.name != "SUBSCRIBED") {
                     throw Exception("channel.subscribe timed out after 45s (status=${channel.status.value.name})")
                 }
-                realtimeRestarting = false  // setup complete -- allow reconnects from network/doze callbacks
+                realtimeRestarting.set(false)  // setup complete -- allow reconnects from network/doze callbacks
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK -- $channelName status=${channel.status.value.name}")
 
                 // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh
@@ -867,11 +876,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
             } catch (e: Exception) {
                 if (e is CancellationException) return@launch  // intentionally cancelled — don't retry, don't touch realtimeRestarting
-                realtimeRestarting = false
+                realtimeRestarting.set(false)
                 RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message}")
                 delay(10_000)
                 startRealtimeSync()
             }
+            } // end realtimeMutex.withLock
         }
     }
 
