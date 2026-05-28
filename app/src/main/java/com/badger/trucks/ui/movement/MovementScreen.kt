@@ -50,6 +50,7 @@ import io.github.jan.supabase.realtime.PostgresAction
 import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.badger.trucks.util.safeLaunch
 
 data class DoorInfo(
     val doorName: String,
@@ -149,7 +150,7 @@ fun MovementScreen() {
         try {
             val channel = BadgerRepo.realtimeChannel("movement-screen-printroom-${System.currentTimeMillis()}")
             channel.postgresChangeFlow<PostgresAction>("public") { table = "printroom_entries" }
-                .collect { scope.launch {
+                .collect { scope.safeLaunch("MovementScreen") {
                     printroom = BadgerRepo.getPrintroomEntries()
                     staging   = BadgerRepo.getStagingDoors()
                 }}
@@ -157,16 +158,10 @@ fun MovementScreen() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
-    // Screen-level poll every 15s — catches any service StateFlow updates missed while screen was off
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(15_000L)
-            val fresh = BadgerRepo.getLiveMovement()
-            if (fresh.isNotEmpty()) localTrucks = fresh
-            val freshDoors = BadgerRepo.getLoadingDoors()
-            if (freshDoors.isNotEmpty()) localDoors = freshDoors
-        }
-    }
+    // Polling loop removed: service StateFlow (liveTrucks/liveDoors) provides
+    // live data via LaunchedEffect(serviceTrucks/serviceDoors) above.
+    // The 15s poll was redundant and caused process crashes during Supabase downtime
+    // (HttpRequestTimeoutException escaped the unguarded LaunchedEffect to the main UEH).
 
     if (loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

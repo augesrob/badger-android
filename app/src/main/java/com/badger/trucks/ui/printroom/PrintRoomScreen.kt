@@ -68,7 +68,7 @@ fun PrintRoomScreen(onBack: (() -> Unit)? = null) {
             val channel = BadgerRepo.realtimeChannel("printroom-android-v2")
             // Use launchIn so collect doesn't block — subscribe AFTER setting up flow
             channel.postgresChangeFlow<PostgresAction>("public") { table = "printroom_entries" }
-                .collect { scope.launch { loadData() } }
+                .collect { scope.safeLaunch("PrintRoomScreen") { loadData() } }
             channel.subscribe()
         } catch (e: Exception) {
             android.util.Log.e("PrintRoom", "Realtime error: ${e.message}", e)
