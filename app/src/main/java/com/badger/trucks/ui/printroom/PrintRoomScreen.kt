@@ -32,6 +32,7 @@ import com.badger.trucks.util.RemoteLogger
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import kotlinx.coroutines.launch
+import com.badger.trucks.util.safeLaunch
 
 @Composable
 fun PrintRoomScreen(onBack: (() -> Unit)? = null) {
