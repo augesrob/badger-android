@@ -90,11 +90,12 @@ fun MovementScreen() {
     var ttsOn    by remember { mutableStateOf(BadgerService.ttsEnabled) }
     val canEdit  = remember { AuthManager.canFeature("movement_edit") }
     val canTts   = remember { AuthManager.canUseTts() }
+    val canPtt   = remember { AuthManager.canFeature("ptt") }
 
     // Button visibility from settings
     val prefs = remember { NotificationPrefsStore.getAll(context) }
-    val showPtt    = prefs[NotificationPrefsStore.KEY_SHOW_PTT]    != false
-    val showMic    = prefs[NotificationPrefsStore.KEY_SHOW_MIC]    != false
+    val showPtt    = canPtt && prefs[NotificationPrefsStore.KEY_SHOW_PTT]    != false
+    val showMic    = canPtt && prefs[NotificationPrefsStore.KEY_SHOW_MIC]    != false
     val showFixAll = prefs[NotificationPrefsStore.KEY_SHOW_FIXALL] != false
 
     var statusDialogTruck    by remember { mutableStateOf<LiveMovement?>(null) }

@@ -303,8 +303,8 @@ object AuthManager {
 
     // Features that allow editing / TTS per role
     private val DEFAULT_FEATURE_ACCESS = mapOf(
-        "print_room"  to setOf("movement_edit","movement_door_edit","preshift_edit","printroom_edit","fleet_edit","tts"),
-        "trainee"     to setOf("movement_edit","movement_door_edit","preshift_edit","printroom_edit","fleet_edit","tts"),
+        "print_room"  to setOf("movement_edit","movement_door_edit","preshift_edit","printroom_edit","fleet_edit","tts","ptt"),
+        "trainee"     to setOf("movement_edit","movement_door_edit","preshift_edit","printroom_edit","fleet_edit","tts","ptt"),
         "semi_driver" to setOf<String>(),
         "driver"      to setOf<String>(),
     )
