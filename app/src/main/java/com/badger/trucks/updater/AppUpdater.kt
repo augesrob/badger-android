@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
+import com.badger.trucks.util.RemoteLogger
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.request.*
@@ -14,84 +15,54 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import java.io.File
-import com.badger.trucks.util.RemoteLogger
 
-private const val GITHUB_RELEASES_URL =
-    "https://api.github.com/repos/augesrob/badger-android/releases?per_page=50"
-
-private const val RELEASE_TAG_PREFIX = "access-v"
-
-@Serializable
-data class GithubRelease(
-    @SerialName("tag_name") val tagName: String,
-    val assets: List<GithubAsset> = emptyList()
-)
+// Version check goes through our own website — no token in APK, no expiry, no rate limits.
+// The website /api/version endpoint calls GitHub server-side with its own env token.
+// The repo is public so browser_download_url works without auth.
+private const val VERSION_CHECK_URL = "https://badger.augesrob.net/api/version"
 
 @Serializable
-data class GithubAsset(
-    val id: Long = 0,
-    val name: String,
-    @SerialName("browser_download_url") val downloadUrl: String,
-    val size: Long = 0
+private data class VersionResponse(
+    @SerialName("versionCode") val versionCode: Int,
+    @SerialName("tagName")     val tagName: String,
+    @SerialName("downloadUrl") val downloadUrl: String,
 )
 
 data class UpdateInfo(
     val latestVersion: Int,
     val tagName: String,
-    val assetId: Long,
     val assetName: String,
-    val downloadUrl: String
+    val downloadUrl: String,
 )
 
 object AppUpdater {
 
     private val http = HttpClient(OkHttp) {
-        engine {
-            config {
-                followRedirects(true)
-            }
-        }
+        engine { config { followRedirects(true) } }
     }
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun checkForUpdate(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
-            RemoteLogger.i("AppUpdater", "Checking for update (current=$currentVersionCode)")
-            val body = http.get(GITHUB_RELEASES_URL) {
-                header("Accept", "application/vnd.github+json")
+            RemoteLogger.i("AppUpdater", "Checking for update via website (current=$currentVersionCode)")
+            val body = http.get(VERSION_CHECK_URL) {
                 header("User-Agent", "BadgerApp")
-                header("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
             }.bodyAsText()
 
-            val releases = json.decodeFromString<List<GithubRelease>>(body)
-            // Only consider releases tagged access-v* so main branch releases are ignored
-            val release = releases
-                .filter { it.tagName.startsWith(RELEASE_TAG_PREFIX) }
-                .maxByOrNull { Regex("\\d+").find(it.tagName)?.value?.toIntOrNull() ?: 0 }
-                ?: return@withContext null
-            val latestCode = Regex("\\d+").find(release.tagName)?.value?.toIntOrNull()
-                ?: return@withContext null
+            val info = json.decodeFromString<VersionResponse>(body)
 
-            if (latestCode <= currentVersionCode) {
-                RemoteLogger.i("AppUpdater", "Up to date (current=$currentVersionCode latest=$latestCode)")
+            if (info.versionCode <= currentVersionCode) {
+                RemoteLogger.i("AppUpdater", "Up to date (current=$currentVersionCode latest=${info.versionCode})")
                 return@withContext null
             }
 
-            val apk = release.assets.firstOrNull { it.name.endsWith(".apk") }
-                ?: return@withContext null
-
-            RemoteLogger.i("AppUpdater", "Update found: ${release.tagName} (current=$currentVersionCode)")
+            RemoteLogger.i("AppUpdater", "Update found: ${info.tagName} (current=$currentVersionCode)")
             UpdateInfo(
-                latestVersion = latestCode,
-                tagName = release.tagName,
-                assetId = apk.id,
-                assetName = apk.name,
-                downloadUrl = apk.downloadUrl
+                latestVersion = info.versionCode,
+                tagName       = info.tagName,
+                assetName     = "${info.tagName}.apk",
+                downloadUrl   = info.downloadUrl,
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -100,28 +71,23 @@ object AppUpdater {
         }
     }
 
-    // Download via Ktor (handles private repo auth redirect correctly) then install
+    // Download APK directly from browser_download_url (public repo, no auth needed) then install
     suspend fun downloadAndInstall(context: Context, info: UpdateInfo, onProgress: (String) -> Unit) {
         withContext(Dispatchers.IO) {
             try {
                 onProgress("Downloading ${info.assetName}...")
-                android.util.Log.d("AppUpdater", "Starting download of ${info.assetName} from asset ${info.assetId}")
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "⬇️ Downloading update ${info.tagName}...", android.widget.Toast.LENGTH_LONG).show()
                 }
 
-                val apiAssetUrl = "https://api.github.com/repos/augesrob/badger-android/releases/assets/${info.assetId}"
-
-                val response: HttpResponse = http.get(apiAssetUrl) {
-                    header("Authorization", "Bearer ${com.badger.trucks.BuildConfig.GITHUB_TOKEN}")
-                    header("Accept", "application/octet-stream")
+                RemoteLogger.i("AppUpdater", "Downloading ${info.downloadUrl}")
+                val response: HttpResponse = http.get(info.downloadUrl) {
                     header("User-Agent", "BadgerApp")
                 }
 
-                android.util.Log.d("AppUpdater", "Download response status: ${response.status}")
                 val file = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), info.assetName)
                 val bytes = response.readBytes()
-                android.util.Log.d("AppUpdater", "Downloaded ${bytes.size} bytes, saving to ${file.path}")
+                RemoteLogger.i("AppUpdater", "Downloaded ${bytes.size} bytes")
                 file.writeBytes(bytes)
 
                 onProgress("Installing...")
@@ -132,7 +98,6 @@ object AppUpdater {
             } catch (e: Exception) {
                 e.printStackTrace()
                 RemoteLogger.w("AppUpdater", "downloadAndInstall failed: ${e.message}")
-                android.util.Log.e("AppUpdater", "Download failed: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "❌ Update failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -146,13 +111,9 @@ object AppUpdater {
         } else {
             Uri.fromFile(apkFile)
         }
-
-        val install = Intent(Intent.ACTION_VIEW).apply {
+        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-        }
-        context.startActivity(install)
+        })
     }
 }
-// dummy Sun Feb 22 06:30:52 UTC 2026
-// dummy Mon Feb 23 01:56:22 UTC 2026
