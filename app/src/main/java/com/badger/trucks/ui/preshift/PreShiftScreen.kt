@@ -1,4 +1,4 @@
-package com.badger.trucks.ui.preshift
+﻿package com.badger.trucks.ui.preshift
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -254,6 +254,7 @@ fun StagingCell(
 ) {
     var text by remember(value) { mutableStateOf(value) }
     val focusManager = LocalFocusManager.current
+    val canEdit = remember { AuthManager.canFeature("preshift_edit") }
 
     Box(
         modifier = modifier
@@ -264,6 +265,7 @@ fun StagingCell(
         BasicTextField(
             value = text,
             onValueChange = { text = it },
+            readOnly = !canEdit,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp)

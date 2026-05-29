@@ -1,4 +1,4 @@
-package com.badger.trucks
+﻿package com.badger.trucks
 
 import android.Manifest
 import android.app.AlertDialog
@@ -281,6 +281,7 @@ fun BadgerAccessMain(profile: UserProfile) {
         if (currentTab !in visibleTabs) {
             currentTab = visibleTabs.firstOrNull() ?: Tab.Live
         }
+        BadgerService.ttsEnabled = AuthManager.canUseTts()
     }
 
     val updateInfo         = MainActivity.pendingUpdate

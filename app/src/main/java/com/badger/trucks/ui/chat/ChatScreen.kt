@@ -56,12 +56,12 @@ fun ChatScreen(profile: UserProfile) {
 
     fun canWrite(room: ChatRoom?): Boolean {
         if (room == null) return false
-        if (profile.role == "admin") return true
+        if (profile.role == "admin" || profile.role == "truck_mover") return true
         return room.readOnlyRoles?.contains(profile.role) != true
     }
 
     fun canSeeRoom(room: ChatRoom): Boolean {
-        if (profile.role == "admin") return true
+        if (profile.role == "admin" || profile.role == "truck_mover") return true
         if (room.allowedRoles == null) return true
         if (room.allowedRoles.isEmpty()) return false
         return room.allowedRoles.contains(profile.role)

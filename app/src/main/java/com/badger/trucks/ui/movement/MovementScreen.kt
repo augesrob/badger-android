@@ -1,4 +1,5 @@
-package com.badger.trucks.ui.movement
+-i used with no filenames on the command line, reading from STDIN.
+﻿package com.badger.trucks.ui.movement
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -88,6 +89,8 @@ fun MovementScreen() {
     // loading is false once the service has data (non-empty trucks from StateFlow)
     val loading = trucks.isEmpty() && printroom.isEmpty()
     var ttsOn    by remember { mutableStateOf(BadgerService.ttsEnabled) }
+    val canEdit  = remember { AuthManager.canFeature("movement_edit") }
+    val canTts   = remember { AuthManager.canUseTts() }
 
     // Button visibility from settings
     val prefs = remember { NotificationPrefsStore.getAll(context) }
@@ -260,8 +263,9 @@ fun MovementScreen() {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
                         Text("🚚 Live Movement", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = LightText)
-                        Text("${filtered.size} trucks • Tap status to change", color = MutedText, fontSize = 13.sp)
+                        Text("${filtered.size} trucks • ${if (canEdit) "Tap status to change" else "Read-only view"}", color = MutedText, fontSize = 13.sp)
                     }
+                    if (canTts) {
                     val ttsColor = if (ttsOn) Amber500 else MutedText
                     OutlinedButton(
                         onClick = {
@@ -272,6 +276,7 @@ fun MovementScreen() {
                         border = androidx.compose.foundation.BorderStroke(1.dp, ttsColor),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                     ) { Text(if (ttsOn) "🔊" else "🔇", fontSize = 14.sp) }
+                    }
                 }
 
                 // PTT incoming banner
@@ -322,9 +327,9 @@ fun MovementScreen() {
                     preshiftLookup = preshiftLookup, behindLookup = behindLookup, tractors = tractors,
                     doorStatusValues = doorStatusValues,
                     dockLockStatusValues = dockLockStatusValues,
-                    onTruckTap = { statusDialogTruck = it },
-                    onDoorHeaderTap = { doorObj?.let { doorStatusDialogDoor = it } },
-                    onDockLockTap = { doorObj?.let { dockLockDialogDoor = it } }
+                    onTruckTap = { if (canEdit) statusDialogTruck = it },
+                    onDoorHeaderTap = { if (canEdit) doorObj?.let { doorStatusDialogDoor = it } },
+                    onDockLockTap = { if (canEdit) doorObj?.let { dockLockDialogDoor = it } }
                 )
             }
         }

@@ -1,4 +1,4 @@
-package com.badger.trucks.ui.printroom
+﻿package com.badger.trucks.ui.printroom
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -228,6 +228,7 @@ fun DoorCard(
     onAddClick: () -> Unit,
     onEntryClick: (PrintroomEntry) -> Unit
 ) {
+    val canEdit = remember { AuthManager.canFeature("printroom_edit") }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors   = CardDefaults.cardColors(containerColor = DarkSurface),
@@ -243,7 +244,7 @@ fun DoorCard(
         ) {
             Text(door.doorName, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = Amber500)
             IconButton(
-                onClick  = onAddClick,
+                onClick  = { if (canEdit) onAddClick() },
                 modifier = Modifier.size(32.dp).background(Amber500, RoundedCornerShape(8.dp))
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add truck", tint = Color.Black, modifier = Modifier.size(18.dp))
@@ -279,7 +280,7 @@ fun DoorCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onEntryClick(entry) }
+                    .clickable(enabled = canEdit) { onEntryClick(entry) }
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

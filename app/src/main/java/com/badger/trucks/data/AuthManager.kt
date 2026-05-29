@@ -66,10 +66,21 @@ object AuthManager {
 
     fun canAccess(page: String): Boolean {
         val p = profile ?: return false
-        if (p.role == "admin") return true
+        if (p.role == "admin" || p.role == "truck_mover") return true
         if (page == "profile" || page == "notifications" || page == "chat") return true
         return DEFAULT_PAGE_ACCESS[p.role]?.contains(page) == true
     }
+
+    /** True if the current user can perform a specific edit/feature action. */
+    fun canFeature(feature: String): Boolean {
+        val p = profile ?: return false
+        if (p.role == "admin" || p.role == "truck_mover") return true
+        return DEFAULT_FEATURE_ACCESS[p.role]?.contains(feature) == true
+    }
+
+    /** True if this role gets TTS announcements. */
+    fun canUseTts(): Boolean = canFeature("tts")
+
 
     // ── Init / session restore ────────────────────────────────────────────────
 
@@ -281,12 +292,20 @@ object AuthManager {
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    // ── Default page access per role ──────────────────────────────────────────
+    // ── Default page access per role (admin + truck_mover handled by canAccess directly) ──
 
     private val DEFAULT_PAGE_ACCESS = mapOf(
-        "print_room"  to setOf("printroom","routesheet","cheatsheet","tractors","movement","chat","profile","notifications","preshift"),
-        "truck_mover" to setOf("printroom","routesheet","cheatsheet","tractors","movement","chat","profile","notifications","preshift"),
-        "trainee"     to setOf("printroom","movement","chat","profile","notifications"),
+        "print_room"  to setOf("movement","preshift","printroom","tractors","chat","profile","notifications"),
+        "trainee"     to setOf("movement","preshift","printroom","tractors","chat","profile","notifications"),
+        "semi_driver" to setOf("movement","chat","profile","notifications"),
         "driver"      to setOf("movement","chat","profile","notifications"),
+    )
+
+    // Features that allow editing / TTS per role
+    private val DEFAULT_FEATURE_ACCESS = mapOf(
+        "print_room"  to setOf("movement_edit","movement_door_edit","preshift_edit","printroom_edit","fleet_edit","tts"),
+        "trainee"     to setOf("movement_edit","movement_door_edit","preshift_edit","printroom_edit","fleet_edit","tts"),
+        "semi_driver" to setOf<String>(),
+        "driver"      to setOf<String>(),
     )
 }

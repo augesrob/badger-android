@@ -1,4 +1,4 @@
-package com.badger.trucks.ui.shiftsetup
+﻿package com.badger.trucks.ui.shiftsetup
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.BadgerRepo
 import com.badger.trucks.data.Tractor
 import com.badger.trucks.data.TrailerItem
@@ -204,6 +205,7 @@ private fun TractorCard(
     var saving     by remember { mutableStateOf(false) }
 
     val activeTrailers = trailerList.filter { it.isActive }
+    val canEdit = remember { AuthManager.canFeature("fleet_edit") }
 
     Surface(color = DarkCard, shape = RoundedCornerShape(10.dp)) {
         Column {
@@ -211,7 +213,7 @@ private fun TractorCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(remember { MutableInteractionSource() }, indication = ripple()) { onToggle() }
+                    .clickable(remember { MutableInteractionSource() }, indication = ripple()) { if (canEdit) onToggle() }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -247,7 +249,7 @@ private fun TractorCard(
             }
 
             // ── Edit form ─────────────────────────────────────────────────
-            AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+            AnimatedVisibility(visible = expanded && canEdit, enter = expandVertically(), exit = shrinkVertically()) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -372,6 +374,7 @@ private fun TrailersList(
     var addNotes      by remember { mutableStateOf("") }
     var showAdd       by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf<TrailerItem?>(null) }
+    val canEdit = remember { AuthManager.canFeature("fleet_edit") }
 
     Column(Modifier.fillMaxSize()) {
         // Header bar
@@ -385,7 +388,7 @@ private fun TrailersList(
         ) {
             Text("${trailerList.size} trailers total", color = MutedText, fontSize = 12.sp)
             Button(
-                onClick = { showAdd = !showAdd },
+                onClick = { if (canEdit) showAdd = !showAdd },
                 colors = ButtonDefaults.buttonColors(containerColor = Amber500, contentColor = Color.Black),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
@@ -458,7 +461,7 @@ private fun TrailersList(
                                 fontSize = 10.sp
                             )
                         }
-                        IconButton(onClick = { onToggleActive(item) }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { if (canEdit) onToggleActive(item) }, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 if (item.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                 contentDescription = null,
@@ -466,7 +469,7 @@ private fun TrailersList(
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                        IconButton(onClick = { deleteConfirm = item }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { if (canEdit) deleteConfirm = item }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
                         }
                     }
