@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.io.File
+import com.badger.trucks.util.RemoteLogger
 
 private const val GITHUB_RELEASES_URL =
     "https://api.github.com/repos/augesrob/badger-android/releases?per_page=10"
@@ -60,6 +61,7 @@ object AppUpdater {
 
     suspend fun checkForUpdate(currentVersionCode: Int): UpdateInfo? = withContext(Dispatchers.IO) {
         try {
+            RemoteLogger.i("AppUpdater", "Checking for update (current=$currentVersionCode)")
             val body = http.get(GITHUB_RELEASES_URL) {
                 header("Accept", "application/vnd.github+json")
                 header("User-Agent", "BadgerApp")
@@ -75,11 +77,15 @@ object AppUpdater {
             val latestCode = Regex("\\d+").find(release.tagName)?.value?.toIntOrNull()
                 ?: return@withContext null
 
-            if (latestCode <= currentVersionCode) return@withContext null
+            if (latestCode <= currentVersionCode) {
+                RemoteLogger.i("AppUpdater", "Up to date (current=$currentVersionCode latest=$latestCode)")
+                return@withContext null
+            }
 
             val apk = release.assets.firstOrNull { it.name.endsWith(".apk") }
                 ?: return@withContext null
 
+            RemoteLogger.i("AppUpdater", "Update found: ${release.tagName} (current=$currentVersionCode)")
             UpdateInfo(
                 latestVersion = latestCode,
                 tagName = release.tagName,
@@ -89,6 +95,7 @@ object AppUpdater {
             )
         } catch (e: Exception) {
             e.printStackTrace()
+            RemoteLogger.w("AppUpdater", "checkForUpdate failed: ${e.message}")
             null
         }
     }
@@ -124,6 +131,7 @@ object AppUpdater {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                RemoteLogger.w("AppUpdater", "downloadAndInstall failed: ${e.message}")
                 android.util.Log.e("AppUpdater", "Download failed: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "❌ Update failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()

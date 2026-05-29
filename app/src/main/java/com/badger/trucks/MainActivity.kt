@@ -86,7 +86,7 @@ class MainActivity : FragmentActivity() {
         checkForUpdate()
         updateCheckJob?.cancel()
         updateCheckJob = lifecycleScope.launch {
-            while (isActive) { delay(30 * 60 * 1000L); checkForUpdate() }
+            while (isActive) { delay(5 * 60 * 1000L); checkForUpdate() }
         }
     }
 
