@@ -24,7 +24,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Sync
 import com.badger.trucks.data.*
+import com.badger.trucks.data.AuthManager
 import com.badger.trucks.ui.theme.*
 import com.badger.trucks.util.RemoteLogger
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -38,6 +41,9 @@ fun PreShiftScreen(onBack: (() -> Unit)? = null) {
     var activeTrucks by remember { mutableStateOf<Set<String>>(emptySet()) }
     var printroomEntries by remember { mutableStateOf<List<PrintroomEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var syncing by remember { mutableStateOf(false) }
+    var syncMessage by remember { mutableStateOf<Pair<Boolean, String>?>(null) } // true=success
+    val canEdit = remember { AuthManager.canFeature("preshift_edit") }
 
     // Pending duplicate confirmation: Triple(doorId, field, newValue)
     data class PendingStaging(val doorId: Int, val field: String, val value: String, val conflictMsg: String)
@@ -138,9 +144,68 @@ fun PreShiftScreen(onBack: (() -> Unit)? = null) {
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         item {
-            Text("📋 PreShift Setup", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = LightText)
-            Spacer(Modifier.height(4.dp))
-            Text("Truck Order – Door Placement", color = MutedText, fontSize = 13.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("📋 PreShift Setup", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = LightText)
+                    Text("Truck Order – Door Placement", color = MutedText, fontSize = 13.sp)
+                }
+                if (canEdit) {
+                    Button(
+                        onClick = {
+                            if (!syncing) {
+                                syncing = true
+                                syncMessage = null
+                                scope.launch {
+                                    val result = BadgerRepo.syncFromSheet("both")
+                                    syncing = false
+                                    syncMessage = if (result.isSuccess) {
+                                        true to "✅ Synced from sheet"
+                                    } else {
+                                        false to "❌ ${result.exceptionOrNull()?.message ?: "Sync failed"}"
+                                    }
+                                    if (result.isSuccess) loadData()
+                                    // Auto-clear message after 4 seconds
+                                    kotlinx.coroutines.delay(4000)
+                                    syncMessage = null
+                                }
+                            }
+                        },
+                        enabled = !syncing,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (syncing) DarkCard else Amber500,
+                            contentColor = Color.Black
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        if (syncing) {
+                            CircularProgressIndicator(Modifier.size(14.dp), color = Amber500, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Syncing…", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MutedText)
+                        } else {
+                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Sync Sheet", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            syncMessage?.let { (success, msg) ->
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (success) Color(0xFF14532D) else Color(0xFF450A0A)
+                ) {
+                    Text(msg, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = if (success) Color(0xFF4ADE80) else Color(0xFFF87171),
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
 
             // Header row

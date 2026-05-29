@@ -9,6 +9,14 @@ import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.request.post
+import io.ktor.client.request.header
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -374,6 +382,35 @@ object BadgerRepo {
         client.postgrest["status_values"]
             .select { limit(1) }
             .decodeList<kotlinx.serialization.json.JsonObject>()
+    }
+
+    // ===== SHEET SYNC =====
+    /**
+     * Triggers the website's /api/sync-gsheet endpoint which reads the Google Sheet
+     * and writes staging door assignments + printroom truck order into Supabase.
+     * target = "preshift" | "printroom" | "both"
+     */
+    suspend fun syncFromSheet(target: String = "both"): Result<String> {
+        return try {
+            val http = HttpClient(OkHttp) { engine { config { followRedirects(true) } } }
+            val response = http.post("https://badger.augesrob.net/api/sync-gsheet") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"target":"$target"}""")
+                header("User-Agent", "BadgerApp")
+            }
+            val body = response.bodyAsText()
+            http.close()
+            if (response.status.value in 200..299) {
+                RemoteLogger.i("BadgerRepo", "Sheet sync OK ($target): $body")
+                Result.success(body)
+            } else {
+                RemoteLogger.w("BadgerRepo", "Sheet sync error ${response.status}: $body")
+                Result.failure(Exception("Server error ${response.status.value}"))
+            }
+        } catch (e: Exception) {
+            RemoteLogger.w("BadgerRepo", "syncFromSheet failed: ${e.message}")
+            Result.failure(e)
+        }
     }
 
     // ===== WEATHER RULES =====
