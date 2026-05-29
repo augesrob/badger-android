@@ -304,3 +304,11 @@ fun degToDir(deg: Double): String {
     val dirs = listOf("N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW")
     return dirs[(Math.round(deg / 22.5).toInt()) % 16]
 }
+
+
+// Result type for BadgerRepo.importRoutes()
+sealed class RouteImportResult {
+    data class Done(val updated: Int) : RouteImportResult()
+    object Waiting : RouteImportResult()
+    data class Error(val message: String) : RouteImportResult()
+}

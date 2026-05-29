@@ -19,8 +19,12 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
 import com.badger.trucks.BadgerApp
 import com.badger.trucks.util.RemoteLogger
 
@@ -385,34 +389,50 @@ object BadgerRepo {
     }
 
     // ===== ROUTE SYNC =====
-    /**
-     * Triggers /api/sync-routes on the website, which reads the latest route CSV
-     * (received via route-email from Gmail) and writes route_info into printroom_entries.
-     */
-    suspend fun syncRoutes(): Result<String> {
-        return try {
-            val http = HttpClient(OkHttp) { engine { config { followRedirects(true) } } }
-            val response = http.post("https://badger.augesrob.net/api/sync-routes") {
-                contentType(ContentType.Application.Json)
-                setBody("{}")
-                header("User-Agent", "BadgerApp")
-            }
-            val body = response.bodyAsText()
-            http.close()
-            if (response.status.value in 200..299) {
-                RemoteLogger.i("BadgerRepo", "Route sync OK: $body")
-                Result.success(body)
-            } else {
-                RemoteLogger.w("BadgerRepo", "Route sync error ${response.status}: $body")
-                Result.failure(Exception(
-                    if (body.contains("No route data")) "No route data — open Route Sheet on website first"
-                    else "Server error ${response.status.value}"
-                ))
-            }
-        } catch (e: Exception) {
-            RemoteLogger.w("BadgerRepo", "syncRoutes failed: ${e.message}")
-            Result.failure(e)
+    private val routeHttp = HttpClient(OkHttp) { engine { config { followRedirects(true) } } }
+
+    /** Step 1: Send the route request ping email (same as website "Request Data" button). */
+    suspend fun requestRoutes(): Result<Unit> = try {
+        val resp = routeHttp.post("https://badger.augesrob.net/api/sync-routes") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"action":"request"}""")
+            header("User-Agent", "BadgerApp")
         }
+        if (resp.status.value in 200..299) Result.success(Unit)
+        else Result.failure(Exception("Request failed ${resp.status.value}"))
+    } catch (e: Exception) {
+        RemoteLogger.w("BadgerRepo", "requestRoutes failed: ${e.message}")
+        Result.failure(e)
+    }
+
+    /**
+     * Step 2 (polled): Check Gmail for reply + import routes if CSV arrived.
+     * Returns:
+     *  - Result.success(N)   → N routes imported, done
+     *  - Result.failure with isWaiting=true → reply not yet arrived, poll again
+     *  - Result.failure with isWaiting=false → real error
+     */
+    suspend fun importRoutes(): RouteImportResult = try {
+        val resp = routeHttp.post("https://badger.augesrob.net/api/sync-routes") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"action":"import"}""")
+            header("User-Agent", "BadgerApp")
+        }
+        val body = resp.bodyAsText()
+        RemoteLogger.i("BadgerRepo", "importRoutes: ${resp.status} $body")
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            .parseToJsonElement(body).jsonObject
+        val ok      = json["ok"]?.jsonPrimitive?.boolean ?: false
+        val waiting = json["waiting"]?.jsonPrimitive?.boolean ?: false
+        val updated = json["updated"]?.jsonPrimitive?.int ?: 0
+        when {
+            ok      -> RouteImportResult.Done(updated)
+            waiting -> RouteImportResult.Waiting
+            else    -> RouteImportResult.Error(json["error"]?.jsonPrimitive?.content ?: "Unknown error")
+        }
+    } catch (e: Exception) {
+        RemoteLogger.w("BadgerRepo", "importRoutes failed: ${e.message}")
+        RouteImportResult.Error(e.message ?: "Network error")
     }
 
     // ===== SHEET SYNC =====

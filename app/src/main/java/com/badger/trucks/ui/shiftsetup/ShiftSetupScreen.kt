@@ -74,13 +74,17 @@ fun ShiftSetupScreen(profile: UserProfile, resetCounter: Int = 0) {
     }
 }
 
+private enum class RouteSyncState { Idle, Requesting, Waiting, Done, Error }
+
 @Composable
 private fun ShiftMenu(profile: UserProfile, onSelect: (ShiftSub) -> Unit) {
     val items = SHIFT_ITEMS_BY_ROLE[profile.role] ?: emptyList()
     val canEdit = remember { AuthManager.canFeature("printroom_edit") }
     val scope = rememberCoroutineScope()
-    var routeSyncing by remember { mutableStateOf(false) }
-    var routeSyncMsg by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+
+    var routeState  by remember { mutableStateOf(RouteSyncState.Idle) }
+    var routeMsg    by remember { mutableStateOf("") }
+    var waitSeconds by remember { mutableStateOf(0) }
 
     Column(
         modifier = Modifier
@@ -112,50 +116,82 @@ private fun ShiftMenu(profile: UserProfile, onSelect: (ShiftSub) -> Unit) {
             Spacer(Modifier.height(10.dp))
             SectionLabel("Quick Actions")
 
+            val isBusy = routeState == RouteSyncState.Requesting || routeState == RouteSyncState.Waiting
+            val cardLabel = when (routeState) {
+                RouteSyncState.Idle       -> "Sync Route Sheet"
+                RouteSyncState.Requesting -> "Sending request…"
+                RouteSyncState.Waiting    -> "Waiting for route data… ${waitSeconds}s"
+                RouteSyncState.Done       -> "Sync Route Sheet"
+                RouteSyncState.Error      -> "Sync Route Sheet"
+            }
+            val cardDesc = when (routeState) {
+                RouteSyncState.Waiting    -> "Email sent to dispatch — reply usually arrives in 30–60s"
+                else                      -> "Request and import fresh route numbers from dispatch"
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 6.dp)
                     .background(DarkCard, RoundedCornerShape(10.dp))
-                    .clickable(remember { MutableInteractionSource() }, indication = ripple(), enabled = !routeSyncing) {
-                        routeSyncing = true
-                        routeSyncMsg = null
+                    .clickable(remember { MutableInteractionSource() }, indication = ripple(), enabled = !isBusy) {
+                        routeState = RouteSyncState.Requesting
+                        routeMsg   = ""
+                        waitSeconds = 0
                         scope.launch {
-                            val result = BadgerRepo.syncRoutes()
-                            routeSyncing = false
-                            routeSyncMsg = if (result.isSuccess) {
-                                true to "✅ Route data imported"
-                            } else {
-                                false to "❌ ${result.exceptionOrNull()?.message ?: "Sync failed"}"
+                            // Step 1: send the ping email
+                            val req = BadgerRepo.requestRoutes()
+                            if (req.isFailure) {
+                                routeMsg   = "❌ ${req.exceptionOrNull()?.message ?: "Failed to send request"}"
+                                routeState = RouteSyncState.Error
+                                kotlinx.coroutines.delay(5000); routeState = RouteSyncState.Idle; return@launch
                             }
-                            kotlinx.coroutines.delay(5000)
-                            routeSyncMsg = null
+                            // Step 2: poll every 8s, up to 2 minutes
+                            routeState = RouteSyncState.Waiting
+                            val maxWait = 120
+                            while (waitSeconds < maxWait) {
+                                kotlinx.coroutines.delay(8000)
+                                waitSeconds += 8
+                                when (val result = BadgerRepo.importRoutes()) {
+                                    is com.badger.trucks.data.RouteImportResult.Done -> {
+                                        routeMsg   = "✅ ${result.updated} routes imported"
+                                        routeState = RouteSyncState.Done
+                                        kotlinx.coroutines.delay(5000); routeState = RouteSyncState.Idle; return@launch
+                                    }
+                                    is com.badger.trucks.data.RouteImportResult.Waiting -> { /* keep polling */ }
+                                    is com.badger.trucks.data.RouteImportResult.Error -> {
+                                        routeMsg   = "❌ ${result.message}"
+                                        routeState = RouteSyncState.Error
+                                        kotlinx.coroutines.delay(5000); routeState = RouteSyncState.Idle; return@launch
+                                    }
+                                }
+                            }
+                            routeMsg   = "⏱ No reply in ${maxWait}s — check route email on website"
+                            routeState = RouteSyncState.Error
+                            kotlinx.coroutines.delay(6000); routeState = RouteSyncState.Idle
                         }
                     }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (routeSyncing) {
+                if (isBusy) {
                     CircularProgressIndicator(Modifier.size(22.dp).padding(start = 4.dp), color = Amber500, strokeWidth = 2.dp)
                 } else {
                     Icon(Icons.Default.Sync, contentDescription = null, tint = Amber500, modifier = Modifier.size(22.dp).padding(start = 4.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(if (routeSyncing) "Importing Routes…" else "Sync Route Sheet",
-                        color = if (routeSyncing) MutedText else LightText,
+                    Text(cardLabel, color = if (isBusy) MutedText else LightText,
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Import route numbers from latest route email into Print Room",
-                        color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 1.dp))
+                    Text(cardDesc, color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 1.dp))
                 }
             }
 
-            routeSyncMsg?.let { (success, msg) ->
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (success) Color(0xFF14532D) else Color(0xFF450A0A)
-                ) {
-                    Text(msg, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            if (routeMsg.isNotBlank()) {
+                val success = routeMsg.startsWith("✅")
+                Surface(shape = RoundedCornerShape(8.dp),
+                    color = if (success) Color(0xFF14532D) else Color(0xFF450A0A)) {
+                    Text(routeMsg, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         color = if (success) Color(0xFF4ADE80) else Color(0xFFF87171),
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
