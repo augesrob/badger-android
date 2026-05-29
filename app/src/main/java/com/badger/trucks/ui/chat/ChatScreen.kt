@@ -62,6 +62,11 @@ fun ChatScreen(profile: UserProfile) {
 
     fun canSeeRoom(room: ChatRoom): Boolean {
         if (profile.role == "admin" || profile.role == "truck_mover") return true
+        // semi_driver and driver can only see Drivers and Global rooms
+        if (profile.role == "semi_driver" || profile.role == "driver") {
+            val n = room.name.lowercase()
+            return n.contains("driver") || n.contains("global")
+        }
         if (room.allowedRoles == null) return true
         if (room.allowedRoles.isEmpty()) return false
         return room.allowedRoles.contains(profile.role)
