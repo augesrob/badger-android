@@ -1,4 +1,4 @@
-﻿package com.badger.trucks.ui.preshift
+package com.badger.trucks.ui.preshift
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

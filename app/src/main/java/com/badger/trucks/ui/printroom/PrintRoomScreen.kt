@@ -1,4 +1,4 @@
-﻿package com.badger.trucks.ui.printroom
+package com.badger.trucks.ui.printroom
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

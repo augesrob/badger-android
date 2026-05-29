@@ -1,5 +1,4 @@
--i used with no filenames on the command line, reading from STDIN.
-﻿package com.badger.trucks.ui.movement
+package com.badger.trucks.ui.movement
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*

@@ -1,4 +1,4 @@
-﻿package com.badger.trucks
+package com.badger.trucks
 
 import android.Manifest
 import android.app.AlertDialog
