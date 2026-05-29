@@ -177,7 +177,14 @@ class MainActivity : FragmentActivity() {
         else @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, 0).versionCode
         lifecycleScope.launch {
             val update = AppUpdater.checkForUpdate(ver)
-            if (update != null) pendingUpdate = update
+            if (update == null) return@launch
+            // Already downloading/downloaded this version — skip
+            if (pendingUpdate?.latestVersion == update.latestVersion) return@launch
+            pendingUpdate = update
+            RemoteLogger.i("MainActivity", "Auto-downloading ${update.tagName}")
+            // Auto-download and immediately trigger the Android install dialog —
+            // no banner tap needed; dialog pops on top of whatever is on screen.
+            AppUpdater.downloadAndInstall(applicationContext, update) {}
         }
     }
 
