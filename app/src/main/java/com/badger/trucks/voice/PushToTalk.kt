@@ -18,6 +18,7 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -281,11 +282,14 @@ class PushToTalkManager(
         if (destroyed) return
 
         listenJob?.cancel()
-        listenChannel?.let { ch ->
-            scope.launch { try { ch.unsubscribe() } catch (_: Exception) {} }
+        listenChannel?.let { oldCh ->
+            scope.launch {
+                try { oldCh.unsubscribe() } catch (_: Exception) {}
+                try { client.realtime.removeChannel(oldCh) } catch (_: Exception) {}
+            }
         }
 
-        val ch = client.channel("badger-ptt-listen")
+        val ch = client.channel("badger-ptt-listen-${java.util.UUID.randomUUID()}")
         listenChannel = ch
 
         listenJob = ch.postgresChangeFlow<PostgresAction>("public") {

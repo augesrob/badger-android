@@ -22,7 +22,7 @@ import java.io.File
 import com.badger.trucks.util.RemoteLogger
 
 private const val GITHUB_RELEASES_URL =
-    "https://api.github.com/repos/augesrob/badger-android/releases?per_page=10"
+    "https://api.github.com/repos/augesrob/badger-android/releases?per_page=50"
 
 private const val RELEASE_TAG_PREFIX = "access-v"
 
