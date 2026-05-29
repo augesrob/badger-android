@@ -26,10 +26,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Sync
+import com.badger.trucks.data.AuthManager
+import com.badger.trucks.data.BadgerRepo
 import com.badger.trucks.data.UserProfile
 import com.badger.trucks.ui.preshift.PreShiftScreen
 import com.badger.trucks.ui.printroom.PrintRoomScreen
 import com.badger.trucks.ui.theme.*
+import kotlinx.coroutines.launch
 
 private enum class ShiftSub { PrintRoom, PreShift, Tractors }
 
@@ -73,6 +77,10 @@ fun ShiftSetupScreen(profile: UserProfile, resetCounter: Int = 0) {
 @Composable
 private fun ShiftMenu(profile: UserProfile, onSelect: (ShiftSub) -> Unit) {
     val items = SHIFT_ITEMS_BY_ROLE[profile.role] ?: emptyList()
+    val canEdit = remember { AuthManager.canFeature("printroom_edit") }
+    val scope = rememberCoroutineScope()
+    var routeSyncing by remember { mutableStateOf(false) }
+    var routeSyncMsg by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     Column(
         modifier = Modifier
@@ -97,6 +105,61 @@ private fun ShiftMenu(profile: UserProfile, onSelect: (ShiftSub) -> Unit) {
         items.forEach { sub ->
             val (icon, label, description, color) = shiftItemDef(sub)
             ShiftMenuItem(icon = icon, label = label, description = description, color = color, onClick = { onSelect(sub) })
+        }
+
+        // ── Route Sheet sync ─────────────────────────────────────────────────
+        if (canEdit) {
+            Spacer(Modifier.height(10.dp))
+            SectionLabel("Quick Actions")
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+                    .background(DarkCard, RoundedCornerShape(10.dp))
+                    .clickable(remember { MutableInteractionSource() }, indication = ripple(), enabled = !routeSyncing) {
+                        routeSyncing = true
+                        routeSyncMsg = null
+                        scope.launch {
+                            val result = BadgerRepo.syncRoutes()
+                            routeSyncing = false
+                            routeSyncMsg = if (result.isSuccess) {
+                                true to "✅ Route data imported"
+                            } else {
+                                false to "❌ ${result.exceptionOrNull()?.message ?: "Sync failed"}"
+                            }
+                            kotlinx.coroutines.delay(5000)
+                            routeSyncMsg = null
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (routeSyncing) {
+                    CircularProgressIndicator(Modifier.size(22.dp).padding(start = 4.dp), color = Amber500, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Sync, contentDescription = null, tint = Amber500, modifier = Modifier.size(22.dp).padding(start = 4.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(if (routeSyncing) "Importing Routes…" else "Sync Route Sheet",
+                        color = if (routeSyncing) MutedText else LightText,
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Import route numbers from latest route email into Print Room",
+                        color = MutedText, fontSize = 11.sp, modifier = Modifier.padding(top = 1.dp))
+                }
+            }
+
+            routeSyncMsg?.let { (success, msg) ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (success) Color(0xFF14532D) else Color(0xFF450A0A)
+                ) {
+                    Text(msg, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = if (success) Color(0xFF4ADE80) else Color(0xFFF87171),
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

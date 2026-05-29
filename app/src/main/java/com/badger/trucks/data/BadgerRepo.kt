@@ -384,6 +384,37 @@ object BadgerRepo {
             .decodeList<kotlinx.serialization.json.JsonObject>()
     }
 
+    // ===== ROUTE SYNC =====
+    /**
+     * Triggers /api/sync-routes on the website, which reads the latest route CSV
+     * (received via route-email from Gmail) and writes route_info into printroom_entries.
+     */
+    suspend fun syncRoutes(): Result<String> {
+        return try {
+            val http = HttpClient(OkHttp) { engine { config { followRedirects(true) } } }
+            val response = http.post("https://badger.augesrob.net/api/sync-routes") {
+                contentType(ContentType.Application.Json)
+                setBody("{}")
+                header("User-Agent", "BadgerApp")
+            }
+            val body = response.bodyAsText()
+            http.close()
+            if (response.status.value in 200..299) {
+                RemoteLogger.i("BadgerRepo", "Route sync OK: $body")
+                Result.success(body)
+            } else {
+                RemoteLogger.w("BadgerRepo", "Route sync error ${response.status}: $body")
+                Result.failure(Exception(
+                    if (body.contains("No route data")) "No route data — open Route Sheet on website first"
+                    else "Server error ${response.status.value}"
+                ))
+            }
+        } catch (e: Exception) {
+            RemoteLogger.w("BadgerRepo", "syncRoutes failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     // ===== SHEET SYNC =====
     /**
      * Triggers the website's /api/sync-gsheet endpoint which reads the Google Sheet
