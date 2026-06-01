@@ -24,7 +24,7 @@ class BadgerApp : Application() {
         CoroutineScope(Dispatchers.IO).launch { AuthManager.init() }
         val url = BuildConfig.SUPABASE_URL
         val wsUrl = url.replace("https://", "wss://").replace("http://", "ws://") + "/realtime/v1/websocket"
-        RemoteLogger.i("BadgerApp", "App started — REST: $url")
+        RemoteLogger.i("BadgerApp", "App started v${BuildConfig.VERSION_CODE} — REST: $url")
         RemoteLogger.i("BadgerApp", "WebSocket URL will be: $wsUrl")
     }
 

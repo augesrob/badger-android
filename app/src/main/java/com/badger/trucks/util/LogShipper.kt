@@ -50,7 +50,7 @@ object LogShipper {
         try {
             // Read last N lines so the file stays manageable
             val lines = logFile.readLines().takeLast(MAX_SHIP_LINES)
-            val header = "=== ${Build.MANUFACTURER} ${Build.MODEL} | shipped ${dateFmt.format(Date())} ===\n"
+            val header = "=== ${Build.MANUFACTURER} ${Build.MODEL} | v${com.badger.trucks.BuildConfig.VERSION_CODE} | shipped ${dateFmt.format(Date())} ===\n"
             val content = header + lines.joinToString("\n")
             val encoded = Base64.encodeToString(content.toByteArray(), Base64.NO_WRAP)
 
