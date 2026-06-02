@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.badger.trucks.R
 import com.badger.trucks.MainActivity
 import com.badger.trucks.util.RemoteLogger
 import com.badger.trucks.data.BadgerRepo

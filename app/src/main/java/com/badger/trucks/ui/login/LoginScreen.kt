@@ -38,6 +38,7 @@ import androidx.compose.ui.res.painterResource
 import com.badger.trucks.R
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen() {
