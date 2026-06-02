@@ -117,6 +117,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             if (e !is CancellationException) {
                 RemoteLogger.e("BadgerService", "Unhandled coroutine: ${e::class.simpleName}: ${e.message}")
                 realtimeRestarting.set(false)
+                realtimeNextRetryMs = 0L
             }
         }
     )
@@ -132,8 +133,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var realtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     private var chatRealtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     private var realtimeSyncJob: Job? = null
-    private val realtimeMutex     = Mutex()
+    private val realtimeMutex      = Mutex()
     private val realtimeRestarting = AtomicBoolean(false)
+    private var realtimeRetryCount = 0
+    private var realtimeNextRetryMs = 0L  // epoch ms — 0 means "retry immediately"
     private var wakeLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
@@ -663,6 +666,12 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startRealtimeSync() {
+        // Enforce backoff: if a cooldown is active, skip unless it has elapsed
+        val now = System.currentTimeMillis()
+        if (realtimeNextRetryMs > now) {
+            RemoteLogger.w("BadgerService", "startRealtimeSync: in backoff for ${(realtimeNextRetryMs - now) / 1000}s more — skipping")
+            return
+        }
         if (!realtimeRestarting.compareAndSet(false, true)) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped -- already restarting"); return }
         realtimeSyncJob?.cancel()
         realtimeSyncJob = scope.launch {
@@ -829,6 +838,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     throw Exception("channel.subscribe timed out after 45s (status=${channel.status.value.name})")
                 }
                 realtimeRestarting.set(false)  // setup complete -- allow reconnects from network/doze callbacks
+                realtimeRetryCount = 0          // reset backoff counter on successful connect
+                realtimeNextRetryMs = 0L
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK -- $channelName status=${channel.status.value.name}")
 
                 // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh
@@ -876,9 +887,21 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
             } catch (e: Exception) {
                 if (e is CancellationException) return@launch  // intentionally cancelled — don't retry, don't touch realtimeRestarting
+                realtimeRetryCount++
+                // Exponential backoff: 10s, 20s, 40s, 80s, cap at 120s
+                // After 10 consecutive failures take a 5-minute pause to avoid log spam
+                val backoffMs = when {
+                    realtimeRetryCount > 10 -> {
+                        RemoteLogger.e("BadgerService", "Realtime: ${realtimeRetryCount} consecutive failures — cooling down 5 min")
+                        5 * 60 * 1000L
+                    }
+                    else -> minOf(10_000L * (1L shl (realtimeRetryCount - 1).coerceAtMost(3)), 120_000L)
+                }
+                realtimeNextRetryMs = System.currentTimeMillis() + backoffMs
                 realtimeRestarting.set(false)
-                RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message}")
-                delay(10_000)
+                RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message} (retry #$realtimeRetryCount in ${backoffMs/1000}s)")
+                delay(backoffMs)
+                realtimeNextRetryMs = 0L
                 startRealtimeSync()
             }
             } // end realtimeMutex.withLock
