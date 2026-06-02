@@ -46,9 +46,26 @@ jobs:
           key: gradle-access-${{ hashFiles('**/*.gradle.kts', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-access-
 
-      - name: Decode keystore
+      - name: Decode or generate keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/badger.keystore
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Using stored keystore from secret"
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/badger.keystore
+          elif [ -f "app/badger.keystore" ]; then
+            echo "Using committed keystore file"
+          else
+            echo "Generating stable keystore (first time only — commit this file!)"
+            keytool -genkeypair \
+              -keystore app/badger.keystore \
+              -alias badger \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass badger123 \
+              -keypass badger123 \
+              -dname "CN=Badger Access, OU=Badger, O=Badger Liquor Co, L=Fond du Lac, ST=WI, C=US" \
+              -noprompt
+          fi
 
       - name: Get current versionCode
         id: version
