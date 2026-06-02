@@ -94,12 +94,12 @@ object NotificationHelper {
         )
 
         val icon = when (channelId) {
-            CHANNEL_TRUCK_STATUS -> android.R.drawable.ic_dialog_info
-            CHANNEL_DOOR_STATUS  -> android.R.drawable.ic_dialog_info
-            CHANNEL_PRESHIFT     -> android.R.drawable.ic_dialog_info
+            CHANNEL_TRUCK_STATUS -> R.drawable.badger_logo
+            CHANNEL_DOOR_STATUS  -> R.drawable.badger_logo
+            CHANNEL_PRESHIFT     -> R.drawable.badger_logo
             CHANNEL_SYSTEM       -> android.R.drawable.ic_dialog_alert
             CHANNEL_CHAT         -> android.R.drawable.ic_dialog_email
-            else                 -> android.R.drawable.ic_dialog_info
+            else                 -> R.drawable.badger_logo
         }
 
         val notification = NotificationCompat.Builder(context, channelId)

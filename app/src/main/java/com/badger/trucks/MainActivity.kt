@@ -28,6 +28,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -209,7 +211,11 @@ fun BadgerAccessApp() {
 private fun SplashScreen() {
     Box(Modifier.fillMaxSize().background(DarkBg), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text("🦡", fontSize = 60.sp)
+            Image(
+                painter = painterResource(id = R.drawable.badger_logo),
+                contentDescription = "Badger Logo",
+                modifier = Modifier.size(80.dp).clip(CircleShape)
+            )
             Text("Badger Access", color = Amber500, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
             CircularProgressIndicator(color = Amber500, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
         }
@@ -350,7 +356,11 @@ fun BadgerAccessMain(profile: UserProfile) {
                 ) {
                     // Left: logo + role badge
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text("🦡", fontSize = 18.sp)
+                        Image(
+                            painter = painterResource(id = R.drawable.badger_logo),
+                            contentDescription = "Badger",
+                            modifier = Modifier.size(24.dp).clip(CircleShape)
+                        )
                         Text("Badger", color = LightText, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
                         Surface(
                             color = roleColor.copy(alpha = 0.18f),

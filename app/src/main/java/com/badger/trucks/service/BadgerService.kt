@@ -921,7 +921,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_SERVICE)
             .setContentTitle("🫌 Badger Live")
             .setContentText("Say \"Badger\" to issue a command • TTS ${if (ttsEnabled) "ON 🔊" else "OFF 🔇"}")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.badger_logo)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

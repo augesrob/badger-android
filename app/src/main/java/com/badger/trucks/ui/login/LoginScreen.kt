@@ -31,9 +31,13 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.res.painterResource
+import com.badger.trucks.R
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.ui.theme.*
-import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen() {
@@ -139,7 +143,11 @@ fun LoginScreen() {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Spacer(Modifier.height(40.dp))
-            Text("🦡", fontSize = 56.sp, textAlign = TextAlign.Center)
+            Image(
+                painter = painterResource(id = R.drawable.badger_logo),
+                contentDescription = "Badger Logo",
+                modifier = Modifier.size(80.dp).clip(CircleShape)
+            )
             Text("Badger Access", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Amber500)
 
             if (!showPasswordForm) {
