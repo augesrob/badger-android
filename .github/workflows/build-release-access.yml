@@ -81,7 +81,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Build Release APK
+      - name: Build Release APKs (phone + watch)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -90,12 +90,14 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: ./gradlew :app:assembleRelease :wear:assembleRelease
 
-      - name: Rename APK
+      - name: Rename APKs
         run: |
           mv app/build/outputs/apk/release/app-release.apk \
              app/build/outputs/apk/release/badger-access-${{ steps.version.outputs.tag }}.apk
+          mv wear/build/outputs/apk/release/wear-release.apk \
+             wear/build/outputs/apk/release/badger-wear-${{ steps.version.outputs.tag }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -106,6 +108,8 @@ jobs:
             Auto-built from commit ${{ github.sha }}
             **Branch:** badger-access
             **Changes:** ${{ github.event.head_commit.message }}
-          files: app/build/outputs/apk/release/badger-access-${{ steps.version.outputs.tag }}.apk
+          files: |
+            app/build/outputs/apk/release/badger-access-${{ steps.version.outputs.tag }}.apk
+            wear/build/outputs/apk/release/badger-wear-${{ steps.version.outputs.tag }}.apk
           draft: false
           prerelease: false

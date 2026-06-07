@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BadgerTrucks"
 include(":app")
+include(":wear")

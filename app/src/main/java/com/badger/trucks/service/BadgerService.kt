@@ -210,6 +210,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:ptt_wakelock").also { it.acquire() }
 
         NotificationHelper.createAllChannels(this)
+        WearBridgePhone.start(this)
 
         // Android 14+ can block FGS with microphone type after force-close.
         // Fall back to dataSync-only if that happens.
@@ -597,6 +598,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         lastSpeakTime = System.currentTimeMillis()
         requestAudioFocus()
 
+        WearBridgePhone.pushTts(text)
         val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
         if (result != TextToSpeech.SUCCESS) {
             Log.e("BadgerService", "TTS speak() failed ($result) for: $text — reinitializing")
