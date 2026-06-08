@@ -58,6 +58,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_APPLY_SETTINGS = "com.badger.trucks.APPLY_SETTINGS"
         const val ACTION_MANUAL_VOICE   = "com.badger.trucks.MANUAL_VOICE"
         const val ACTION_KEEPALIVE    = "com.badger.trucks.KEEPALIVE"
+        // Watch-triggered actions
+        const val ACTION_PTT_WATCH_START     = "com.badger.trucks.PTT_WATCH_START"
+        const val ACTION_PTT_WATCH_STOP      = "com.badger.trucks.PTT_WATCH_STOP"
+        const val ACTION_WEAR_STATUS_CHANGE  = "com.badger.trucks.WEAR_STATUS_CHANGE"
+        const val ACTION_WEAR_DOOR_CHANGE    = "com.badger.trucks.WEAR_DOOR_CHANGE"
         const val KEEPALIVE_INTERVAL_MS = 15 * 60 * 1000L  // 15 min
         const val KEEPALIVE_REQUEST_CODE = 42
 
@@ -287,6 +292,32 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 _pttRecording.value = false
                 pttManager?.stopRecording()
                 RemoteLogger.i("PTT", "PTT recording STOPPED")
+            }
+            ACTION_PTT_WATCH_START -> {
+                _pttRecording.value = true
+                pttManager?.startRecording()
+                RemoteLogger.i("PTT", "Watch PTT STARTED")
+            }
+            ACTION_PTT_WATCH_STOP -> {
+                _pttRecording.value = false
+                pttManager?.stopRecording()
+                RemoteLogger.i("PTT", "Watch PTT STOPPED")
+            }
+            ACTION_WEAR_STATUS_CHANGE -> {
+                val truckNumber = intent.getStringExtra("truckNumber") ?: return START_STICKY
+                val statusId = intent.getIntExtra("statusId", -1).takeIf { it != -1 } ?: return START_STICKY
+                scope.launch {
+                    try { BadgerRepo.updateTruckStatus(truckNumber, statusId) }
+                    catch (e: Exception) { RemoteLogger.e("BadgerService", "Watch status change failed: ${e.message}") }
+                }
+            }
+            ACTION_WEAR_DOOR_CHANGE -> {
+                val doorId = intent.getIntExtra("doorId", -1).takeIf { it != -1 } ?: return START_STICKY
+                val status = intent.getStringExtra("status") ?: return START_STICKY
+                scope.launch {
+                    try { BadgerRepo.updateDoorStatus(doorId, status) }
+                    catch (e: Exception) { RemoteLogger.e("BadgerService", "Watch door change failed: ${e.message}") }
+                }
             }
             ACTION_APPLY_SETTINGS -> applySettingsLive()
             ACTION_MANUAL_VOICE   -> onManualVoiceTrigger()
