@@ -25,7 +25,9 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,7 +102,9 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:wear_wakelock").also { it.acquire() }
         tts = TextToSpeech(this, this)
         startModeWatcher()
-        // Check for updates in background — won't block startup
+        // Start standalone immediately — phone relay via Wearable API requires same package ID
+        startStandaloneMode()
+        // Check for updates in background
         scope.launch { checkForUpdate() }
         Log.i("WearService", "Service started")
     }
@@ -167,17 +171,85 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private fun startStandaloneMode() {
         standaloneJob?.cancel()
         standaloneJob = scope.launch {
-            Log.i("WearService", "Standalone mode: polling every ${POLL_INTERVAL_MS/1000}s")
+            Log.i("WearService", "Standalone: starting realtime connection")
             val knownTruckStatus = mutableMapOf<String, String?>()
             val knownDoorStatus  = mutableMapOf<String, String?>()
 
-            // Initial load
-            pollSupabase(knownTruckStatus, knownDoorStatus)
+            // Initial load to populate known state
+            try {
+                val trucks = supabase.from("live_movement").select().decodeList<WearTruck>()
+                trucks.forEach { knownTruckStatus[it.truckNumber] = it.statusName }
+                _trucks.value = trucks
 
-            while (isActive && _mode.value == WearMode.STANDALONE) {
-                delay(POLL_INTERVAL_MS)
-                if (_mode.value == WearMode.STANDALONE) {
-                    pollSupabase(knownTruckStatus, knownDoorStatus)
+                val doors = supabase.from("loading_doors").select().decodeList<WearDoor>()
+                doors.forEach { knownDoorStatus[it.doorName] = it.doorStatus }
+                _doors.value = doors
+
+                val statuses = supabase.from("status_values").select().decodeList<WearStatus>()
+                _statuses.value = statuses
+                updateNotification("Badger Watch — 📡 Standalone")
+            } catch (e: Exception) {
+                Log.w("WearService", "Initial load error: ${e.message}")
+            }
+
+            // Realtime subscription for instant updates
+            try {
+                val channel = supabase.realtime.channel("wear-realtime")
+
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
+                    try {
+                        val trucks = supabase.from("live_movement").select().decodeList<WearTruck>()
+                        trucks.forEach { t ->
+                            val prev = knownTruckStatus[t.truckNumber]
+                            if (prev != null && prev != t.statusName && t.statusName != null) {
+                                speak("Truck ${t.truckNumber}, ${t.statusName}")
+                                postAlert("🚚 Truck ${t.truckNumber}", "$prev → ${t.statusName}")
+                            }
+                            knownTruckStatus[t.truckNumber] = t.statusName
+                        }
+                        _trucks.value = trucks
+                    } catch (e: Exception) { Log.w("WearService", "Truck update error: ${e.message}") }
+                }.launchIn(this)
+
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.onEach {
+                    try {
+                        val doors = supabase.from("loading_doors").select().decodeList<WearDoor>()
+                        doors.forEach { d ->
+                            val prev = knownDoorStatus[d.doorName]
+                            if (prev != null && prev != d.doorStatus && d.doorStatus.isNotBlank()) {
+                                speak("Door ${d.doorName}, ${d.doorStatus}")
+                                postAlert("🚪 Door ${d.doorName}", "$prev → ${d.doorStatus}")
+                            }
+                            knownDoorStatus[d.doorName] = d.doorStatus
+                        }
+                        _doors.value = doors
+                    } catch (e: Exception) { Log.w("WearService", "Door update error: ${e.message}") }
+                }.launchIn(this)
+
+                channel.subscribe()
+                Log.i("WearService", "Realtime subscribed")
+
+                // Keep alive — refresh every 60s as fallback
+                while (isActive && _mode.value == WearMode.STANDALONE) {
+                    delay(60_000)
+                    if (_mode.value == WearMode.STANDALONE) {
+                        try {
+                            _trucks.value = supabase.from("live_movement").select().decodeList<WearTruck>()
+                            _doors.value  = supabase.from("loading_doors").select().decodeList<WearDoor>()
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                try { channel.unsubscribe() } catch (_: Exception) {}
+
+            } catch (e: Exception) {
+                Log.w("WearService", "Realtime error, falling back to polling: ${e.message}")
+                // Fallback: poll every 10s if realtime fails
+                while (isActive && _mode.value == WearMode.STANDALONE) {
+                    delay(10_000)
+                    if (_mode.value == WearMode.STANDALONE) {
+                        pollSupabase(knownTruckStatus, knownDoorStatus)
+                    }
                 }
             }
         }
