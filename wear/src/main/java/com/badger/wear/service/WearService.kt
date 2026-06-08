@@ -23,6 +23,7 @@ import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -139,7 +140,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
             // Realtime subscription
             try {
-                val channel = supabase.realtime.channel("badger-wear-${System.currentTimeMillis()}")
+                val channel = supabase.channel("badger-wear-${System.currentTimeMillis()}")
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
                     try {
@@ -184,13 +185,13 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     delay(30_000)
                     if (channel.status.value.name != "SUBSCRIBED") {
                         Log.w("WearService", "Channel dropped — restarting realtime")
-                        try { channel.unsubscribe() } catch (_: Exception) {}
+                        try { supabase.realtime.removeChannel(channel) } catch (_: Exception) {}
                         startRealtime()
                         return@launch
                     }
                 }
 
-                try { channel.unsubscribe() } catch (_: Exception) {}
+                try { supabase.realtime.removeChannel(channel) } catch (_: Exception) {}
 
             } catch (e: Exception) {
                 Log.w("WearService", "Realtime failed: ${e.message} — retrying in 10s")

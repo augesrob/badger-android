@@ -147,7 +147,7 @@ object AppUpdater {
                 }
 
                 val file = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), info.assetName)
-                val bytes = response.readBytes()
+                val bytes = response.readRawBytes()
                 RemoteLogger.i("AppUpdater", "Downloaded ${bytes.size} bytes")
                 file.writeBytes(bytes)
 
