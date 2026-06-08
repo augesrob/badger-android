@@ -5,7 +5,7 @@
 
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -30,11 +30,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Background service — handles realtime + PTT + TTS -->
+        <!-- Background service — handles realtime + TTS -->
         <service
             android:name=".service.WearService"
             android:exported="false"
-            android:foregroundServiceType="microphone|dataSync" />
+            android:foregroundServiceType="dataSync" />
 
         <!-- Listens for data/messages pushed from phone app -->
         <service

@@ -91,10 +91,11 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        // startForeground MUST be called before anything else on Android 12+
+        startForeground(NOTIF_ID, buildNotification("Badger Watch — starting..."))
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:wear_wakelock").also { it.acquire() }
         tts = TextToSpeech(this, this)
-        startForeground(NOTIF_ID, buildNotification("Badger Watch — connecting..."))
         startModeWatcher()
         Log.i("WearService", "Service started")
     }
