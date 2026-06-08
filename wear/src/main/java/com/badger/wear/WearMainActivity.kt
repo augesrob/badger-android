@@ -45,7 +45,6 @@ fun BadgerWatchApp() {
     val trucks    by WearService.trucks.collectAsState()
     val doors     by WearService.doors.collectAsState()
     val statuses  by WearService.statuses.collectAsState()
-    val mode      by WearService.mode.collectAsState()
     val pttActive by WearService.pttActive.collectAsState()
 
     var selectedTruck by remember { mutableStateOf<WearTruck?>(null) }
@@ -55,8 +54,8 @@ fun BadgerWatchApp() {
     val darkBg   = Color(0xFF0F0F0F)
     val amber    = Color(0xFFF59E0B)
     val surface  = Color(0xFF1A1A1A)
-    val modeColor = if (mode == WearMode.PHONE_RELAY) Color(0xFF22C55E) else Color(0xFF3B82F6)
-    val modeLabel = if (mode == WearMode.PHONE_RELAY) "📱 Relay" else "📡 LTE"
+    val modeColor = Color(0xFF22C55E)
+    val modeLabel = "📡 Live"
 
     when {
         showStopConfirm -> StopConfirmScreen(

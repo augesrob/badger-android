@@ -55,5 +55,4 @@ data class WearDoorChange(
     val doorId: Int,
     val status: String
 )
-
-enum class WearMode { PHONE_RELAY, STANDALONE }
+
