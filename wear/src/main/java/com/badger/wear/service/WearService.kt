@@ -18,6 +18,7 @@ import com.badger.wear.WearMode
 import com.badger.wear.WearPaths
 import com.badger.wear.WearStatus
 import com.badger.wear.WearTruck
+import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.Wearable
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
@@ -32,7 +33,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import java.util.Locale
 

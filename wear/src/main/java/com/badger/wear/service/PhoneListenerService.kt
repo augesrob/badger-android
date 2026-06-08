@@ -7,8 +7,8 @@ import com.badger.wear.WearStatus
 import com.badger.wear.WearTruck
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 
 class PhoneListenerService : WearableListenerService() {
 
@@ -43,8 +43,6 @@ class PhoneListenerService : WearableListenerService() {
                 WearService.onPhoneStop()
             }
             WearPaths.MSG_PTT_AUDIO -> {
-                // Incoming PTT audio — play on watch speaker
-                // For now just notify user
                 Log.i("PhoneListener", "Incoming PTT audio (${data.size} bytes)")
             }
         }

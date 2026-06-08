@@ -2,21 +2,21 @@ package com.badger.wear
 
 import kotlinx.serialization.Serializable
 
-// ── Shared data paths (phone <-> watch Wearable DataClient) ──────────────────
+// ── Shared data paths (must match WearBridgePhone.WearPaths on phone side) ───
 object WearPaths {
-    const val TRUCKS       = "/badger/trucks"        // full truck list
-    const val DOORS        = "/badger/doors"          // full door list
-    const val STATUSES     = "/badger/statuses"       // status value list
-    const val DOOR_STATUSES = "/badger/door_statuses" // door status values
-    const val MSG_PTT_START = "/badger/ptt/start"    // watch -> phone: start PTT
-    const val MSG_PTT_STOP  = "/badger/ptt/stop"     // watch -> phone: stop PTT
-    const val MSG_PTT_AUDIO = "/badger/ptt/audio"    // phone -> watch: incoming PTT audio
-    const val MSG_STATUS_CHANGE = "/badger/status"   // watch -> phone: change truck status
-    const val MSG_DOOR_CHANGE   = "/badger/door"     // watch -> phone: change door status
-    const val MSG_STOP          = "/badger/stop"     // phone -> watch: stop watch service
-    const val MSG_TTS           = "/badger/tts"      // phone -> watch: speak this text
-    const val MSG_PHONE_ALIVE   = "/badger/alive"    // phone -> watch: heartbeat
-    const val WEAR_MODE         = "/badger/mode"     // watch -> phone: current mode
+    const val TRUCKS            = "/badger/trucks"
+    const val DOORS             = "/badger/doors"
+    const val STATUSES          = "/badger/statuses"
+    const val DOOR_STATUSES     = "/badger/door_statuses"
+    const val MSG_PTT_START     = "/badger/ptt/start"
+    const val MSG_PTT_STOP      = "/badger/ptt/stop"
+    const val MSG_PTT_AUDIO     = "/badger/ptt/audio"
+    const val MSG_STATUS_CHANGE = "/badger/status"
+    const val MSG_DOOR_CHANGE   = "/badger/door"
+    const val MSG_STOP          = "/badger/stop"
+    const val MSG_TTS           = "/badger/tts"
+    const val MSG_PHONE_ALIVE   = "/badger/alive"
+    const val WEAR_MODE         = "/badger/mode"
 }
 
 // ── Serializable models sent over Wearable DataClient ───────────────────────
