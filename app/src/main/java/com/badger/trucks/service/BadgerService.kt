@@ -787,6 +787,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         updated.forEach { t -> if (t.statusName != null) knownStatuses[t.truckNumber] = t.statusName }
                         val currSet = updated.map { it.truckNumber }.toSet()
                         knownStatuses.keys.filter { it !in currSet }.forEach { knownStatuses.remove(it) }
+                        WearBridgePhone.pushTrucks(cachedTrucks)
                     } catch (e: Exception) { Log.e("BadgerService", "Truck refresh: ${e.message}") }
                 }.launchIn(this)
 
@@ -812,6 +813,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                             knownDoorStatus[door.doorName] = curr
                         }
                         cachedDoors = updated
+                        WearBridgePhone.pushDoors(cachedDoors)
                     } catch (e: Exception) { Log.e("BadgerService", "Door refresh: ${e.message}") }
                 }.launchIn(this)
 
@@ -874,6 +876,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 realtimeRestarting.set(false)  // setup complete -- allow reconnects from network/doze callbacks
                 realtimeRetryCount = 0          // reset backoff counter on successful connect
                 realtimeNextRetryMs = 0L
+                WearBridgePhone.pushTrucks(cachedTrucks)
+                WearBridgePhone.pushDoors(cachedDoors)
+                WearBridgePhone.pushStatuses(cachedStatuses)
                 RemoteLogger.i("BadgerService", "Realtime subscribed OK -- $channelName status=${channel.status.value.name}")
 
                 // Heartbeat -- 15s: WebSocket ping, TTS watchdog, silent cache refresh

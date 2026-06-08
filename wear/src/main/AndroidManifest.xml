@@ -17,6 +17,7 @@
         android:name=".WearApp"
         android:label="Badger"
         android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault"
         android:allowBackup="false">
 
