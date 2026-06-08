@@ -110,7 +110,7 @@ object WearUpdater {
             onProgress("Downloading ${info.tagName}...")
             Log.i("WearUpdater", "Downloading ${info.downloadUrl}")
             val response = http.get(info.downloadUrl) { header("User-Agent", "BadgerWear") }
-            val bytes = response.readBytes()
+            val bytes = response.readRawBytes()
             val fileName = "badger-wear-${info.tagName}.apk"
             val file = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), fileName)
             file.writeBytes(bytes)

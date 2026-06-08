@@ -307,7 +307,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 val truckNumber = intent.getStringExtra("truckNumber") ?: return START_STICKY
                 val statusId = intent.getIntExtra("statusId", -1).takeIf { it != -1 } ?: return START_STICKY
                 scope.launch {
-                    try { BadgerRepo.updateTruckStatus(truckNumber, statusId) }
+                    try { BadgerRepo.updateMovementStatus(truckNumber, statusId) }
                     catch (e: Exception) { RemoteLogger.e("BadgerService", "Watch status change failed: ${e.message}") }
                 }
             }
