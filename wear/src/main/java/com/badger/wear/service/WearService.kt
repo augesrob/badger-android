@@ -18,6 +18,7 @@ import com.badger.wear.WearMode
 import com.badger.wear.WearPaths
 import com.badger.wear.WearStatus
 import com.badger.wear.WearTruck
+import com.badger.wear.updater.WearUpdater
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.Wearable
 import io.github.jan.supabase.createSupabaseClient
@@ -40,9 +41,11 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
     companion object {
         const val NOTIF_ID            = 2001
+        const val NOTIF_UPDATE_ID     = 2002
         const val ACTION_STOP         = "com.badger.wear.STOP"
         const val ACTION_PTT_START    = "com.badger.wear.PTT_START"
         const val ACTION_PTT_STOP     = "com.badger.wear.PTT_STOP"
+        const val ACTION_INSTALL_UPDATE = "com.badger.wear.INSTALL_UPDATE"
         const val PHONE_TIMEOUT_MS    = 10_000L  // phone considered dead after 10s no heartbeat
         const val POLL_INTERVAL_MS    = 30_000L  // standalone polling interval
 
@@ -97,14 +100,29 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:wear_wakelock").also { it.acquire() }
         tts = TextToSpeech(this, this)
         startModeWatcher()
+        // Check for updates in background — won't block startup
+        scope.launch { checkForUpdate() }
         Log.i("WearService", "Service started")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP     -> stopClean()
+            ACTION_STOP      -> stopClean()
             ACTION_PTT_START -> startPtt()
             ACTION_PTT_STOP  -> stopPtt()
+            ACTION_INSTALL_UPDATE -> {
+                val url     = intent.getStringExtra("downloadUrl") ?: return START_STICKY
+                val tagName = intent.getStringExtra("tagName") ?: return START_STICKY
+                scope.launch {
+                    WearUpdater.downloadAndInstall(this@WearService,
+                        com.badger.wear.updater.WearUpdateInfo(
+                            latestVersion = intent.getIntExtra("versionCode", 0),
+                            tagName = tagName,
+                            downloadUrl = url
+                        )
+                    ) { msg -> Log.i("WearService", "Update: $msg") }
+                }
+            }
         }
         return START_STICKY
     }
@@ -324,6 +342,38 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     Wearable.getMessageClient(this@WearService).sendMessage(node.id, path, data)
                 }
             } catch (e: Exception) { Log.w("WearService", "sendMessageToPhone failed: ${e.message}") }
+        }
+    }
+
+    // ── Auto-update ───────────────────────────────────────────────────────────
+
+    private suspend fun checkForUpdate() {
+        try {
+            val current = BuildConfig.VERSION_CODE
+            val update = WearUpdater.checkForUpdate(current) ?: return
+            Log.i("WearService", "Update available: ${update.tagName}")
+            // Post a tappable notification — tapping triggers download + install
+            val installIntent = PendingIntent.getService(
+                this, 99,
+                Intent(this, WearService::class.java).apply {
+                    action = ACTION_INSTALL_UPDATE
+                    putExtra("downloadUrl", update.downloadUrl)
+                    putExtra("tagName", update.tagName)
+                    putExtra("versionCode", update.latestVersion)
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIF_UPDATE_ID, NotificationCompat.Builder(this, WearApp.CHANNEL_ALERTS)
+                .setContentTitle("Badger Update Available")
+                .setContentText("${update.tagName} — tap to install")
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(installIntent)
+                .build())
+        } catch (e: Exception) {
+            Log.w("WearService", "Update check failed: ${e.message}")
         }
     }
 
