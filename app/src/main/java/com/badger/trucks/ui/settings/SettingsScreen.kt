@@ -16,15 +16,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material3.*import androidx.compose.runtime.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.UserProfile
+import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.profile.ProfileScreen
 import com.badger.trucks.ui.shiftsetup.SubScreenShell
 import com.badger.trucks.ui.theme.*
@@ -81,6 +85,43 @@ fun SettingsScreen(profile: UserProfile, resetCounter: Int = 0) {
 @Composable
 private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) {
     val items = SETTINGS_BY_ROLE[profile.role] ?: listOf(SettingsSub.Profile, SettingsSub.Notifications)
+    val context = LocalContext.current
+    var serviceRunning by remember { mutableStateOf(BadgerService.isRunning) }
+    var showStopConfirm by remember { mutableStateOf(false) }
+
+    // Refresh running state whenever menu is shown
+    LaunchedEffect(Unit) { serviceRunning = BadgerService.isRunning }
+
+    if (showStopConfirm) {
+        AlertDialog(
+            onDismissRequest = { showStopConfirm = false },
+            containerColor = Color(0xFF1A1A1A),
+            title = { Text("Force Stop Badger?", color = Color.Red, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "This will stop all monitoring, TTS, and PTT.\nThe app will NOT auto-restart until you reopen it.",
+                    color = Color(0xFFCCCCCC), fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showStopConfirm = false
+                        context.startService(Intent(context, BadgerService::class.java).apply {
+                            action = BadgerService.ACTION_STOP
+                        })
+                        serviceRunning = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D))
+                ) { Text("Yes, Force Stop", color = Color.Red, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showStopConfirm = false }) {
+                    Text("Cancel", color = Color(0xFF888888))
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -92,7 +133,6 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
         SectionLabel("Settings")
         Spacer(Modifier.height(4.dp))
 
-        // User & account items first
         val userItems  = items.filter { it in listOf(SettingsSub.Profile, SettingsSub.Notifications) }
         val adminItems = items.filter { it !in listOf(SettingsSub.Profile, SettingsSub.Notifications) }
 
@@ -110,6 +150,70 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
                 SettingsMenuItem(icon = d.icon, label = d.label, description = d.sub, color = d.color, onClick = { onSelect(sub) })
             }
         }
+
+        // ── Force Stop / Restart ──────────────────────────────────────────────
+        Spacer(Modifier.height(20.dp))
+        SectionLabel("Service")
+        Spacer(Modifier.height(4.dp))
+
+        if (serviceRunning) {
+            // Status indicator
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .background(Color(0xFF0F2A0F), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(Modifier.size(8.dp).background(Color(0xFF22C55E), RoundedCornerShape(50)))
+                Text("Badger is running", color = Color(0xFF22C55E), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            // Force stop button
+            Button(
+                onClick = { showStopConfirm = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F0000)),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("⛔  Force Stop Badger", color = Color.Red, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Stops monitoring, TTS and PTT. Will not auto-restart.",
+                color = Color(0xFF666666), fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+        } else {
+            // Stopped indicator
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .background(Color(0xFF2A0F0F), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(Modifier.size(8.dp).background(Color(0xFFEF4444), RoundedCornerShape(50)))
+                Text("Badger is stopped", color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            // Restart button
+            Button(
+                onClick = {
+                    context.startForegroundService(Intent(context, BadgerService::class.java))
+                    serviceRunning = true
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF14532D)),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("▶  Start Badger", color = Color(0xFF22C55E), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
     }
 }
 
