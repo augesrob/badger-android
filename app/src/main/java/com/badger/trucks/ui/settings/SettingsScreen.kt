@@ -111,6 +111,8 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
                             action = BadgerService.ACTION_STOP
                         })
                         serviceRunning = false
+                        // Close the app entirely
+                        (context as? android.app.Activity)?.finishAffinity()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D))
                 ) { Text("Yes, Force Stop", color = Color.Red, fontWeight = FontWeight.Bold) }
