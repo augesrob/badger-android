@@ -19,6 +19,14 @@
         android:theme="@android:style/Theme.DeviceDefault"
         android:allowBackup="false">
 
+        <!-- Declares this watch app is paired with the phone app -->
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="false" />
+        <meta-data
+            android:name="com.google.android.gms.wearable.message_received.companion"
+            android:value="com.badger.trucks" />
+
         <!-- Main watch activity -->
         <activity
             android:name=".WearMainActivity"
