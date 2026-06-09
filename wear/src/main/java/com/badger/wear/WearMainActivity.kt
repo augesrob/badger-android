@@ -84,7 +84,7 @@ fun BadgerWatchApp() {
         selectedDoor != null -> StatusPickerScreen(
             title    = "Door ${selectedDoor!!.doorName}",
             current  = selectedDoor!!.doorStatus,
-            options  = doorStatuses,
+            options  = doorStatuses.ifEmpty { listOf("Loading", "End Of Truck Tote", "EOT+1", "Change Truck/Trailer", "Waiting", "Done for Night", "100%", "Move to Receiving", "Priority Change Truck/Trailer", "waiting on dead truck", "Smile, almost finished \uD83D\uDE01") },
             colors   = emptyMap(),
             onPick   = { status ->
                 ctx.startService(Intent(ctx, WearService::class.java).apply {
