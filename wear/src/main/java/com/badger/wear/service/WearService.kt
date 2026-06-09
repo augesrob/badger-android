@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import java.util.Locale
 import com.badger.wear.util.WearLogger
+import com.badger.wear.util.WearLogShipper
 
 class WearService : Service(), TextToSpeech.OnInitListener {
 
@@ -78,7 +79,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:wear_wakelock").also { it.acquire() }
         tts = TextToSpeech(this, this)
-        WearLogger.init(this, supabase)
+        WearLogger.init(this)
         WearLogger.i("WearService", "Service started v${BuildConfig.VERSION_CODE}")
         startRealtime()
         scope.launch { checkForUpdate() }
@@ -185,6 +186,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                 // Keep-alive heartbeat — if channel drops, restart
                 while (isActive) {
                     delay(30_000)
+                    WearLogger.getContext()?.let { ctx -> WearLogShipper.ship(ctx) }
                     if (channel.status.value.name != "SUBSCRIBED") {
                         WearLogger.w("WearService", "Channel dropped — restarting realtime")
                         try { supabase.realtime.removeChannel(channel) } catch (_: Exception) {}
