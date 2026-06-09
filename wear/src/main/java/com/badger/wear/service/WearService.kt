@@ -300,29 +300,16 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private suspend fun checkForUpdate() {
         try {
             val update = WearUpdater.checkForUpdate(BuildConfig.VERSION_CODE) ?: return
-            WearLogger.i("WearService", "Update available: ${update.tagName}")
-            val installIntent = PendingIntent.getService(
-                this, 99,
-                Intent(this, WearService::class.java).apply {
-                    action = ACTION_INSTALL_UPDATE
-                    putExtra("downloadUrl", update.downloadUrl)
-                    putExtra("tagName", update.tagName)
-                    putExtra("versionCode", update.latestVersion)
-                },
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .notify(NOTIF_UPDATE_ID, NotificationCompat.Builder(this, WearApp.CHANNEL_ALERTS)
-                    .setContentTitle("Badger Update Available")
-                    .setContentText("${update.tagName} — tap to install")
-                    .setSmallIcon(android.R.drawable.stat_sys_download)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setAutoCancel(true)
-                    .setContentIntent(installIntent)
-                    .build())
+            WearLogger.i("WearService", "Update found: ${update.tagName} — auto-downloading")
+            updateNotification("Badger Watch — Updating ${update.tagName}...")
+            // Download and install directly — no user tap required
+            WearUpdater.downloadAndInstall(this, update) { msg ->
+                WearLogger.i("WearService", "Update: $msg")
+            }
         } catch (e: Exception) { WearLogger.w("WearService", "Update check failed: ${e.message}") }
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
+        // ── Cleanup ───────────────────────────────────────────────────────────────
 
     private fun stopClean() {
         realtimeJob?.cancel()
