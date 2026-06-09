@@ -55,6 +55,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         private val _doors    = MutableStateFlow<List<WearDoor>>(emptyList())
         private val _statuses = MutableStateFlow<List<WearStatus>>(emptyList())
         private val _pttActive = MutableStateFlow(false)
+        private val _doorStatuses = MutableStateFlow<List<String>>(emptyList())
 
         val trucks:    StateFlow<List<WearTruck>>  = _trucks.asStateFlow()
         val doors:     StateFlow<List<WearDoor>>   = _doors.asStateFlow()
@@ -163,6 +164,11 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                 _trucks.value   = trucks
                 _doors.value    = doors
                 _statuses.value = statuses
+                // Load door status options
+                try {
+                    val ds = supabase.from("door_status_values").select(Columns.raw("status_name")) { filter { eq("is_active", true) } }.decodeList<JsonObject>()
+                    _doorStatuses.value = ds.mapNotNull { it["status_name"]?.jsonPrimitive?.content }
+                } catch (_: Exception) {}
                 updateNotification("Badger Watch — Live ✅")
                 WearLogger.i("WearService", "Initial data loaded: ${trucks.size} trucks, ${doors.size} doors")
             } catch (e: Exception) {
@@ -284,7 +290,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             ttsReady = true
-            speak("Badger watch active")
+            if (!ttsSpokenWelcome) { ttsSpokenWelcome = true; speak("Badger watch active") }
             WearLogger.i("WearService", "TTS ready ✅")
         } else {
             WearLogger.e("WearService", "TTS init failed: $status")
