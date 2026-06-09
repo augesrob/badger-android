@@ -1,58 +1,47 @@
 package com.badger.wear
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-// ── Shared data paths (must match WearBridgePhone.WearPaths on phone side) ───
 object WearPaths {
-    const val TRUCKS            = "/badger/trucks"
-    const val DOORS             = "/badger/doors"
-    const val STATUSES          = "/badger/statuses"
-    const val DOOR_STATUSES     = "/badger/door_statuses"
     const val MSG_PTT_START     = "/badger/ptt/start"
     const val MSG_PTT_STOP      = "/badger/ptt/stop"
-    const val MSG_PTT_AUDIO     = "/badger/ptt/audio"
     const val MSG_STATUS_CHANGE = "/badger/status"
     const val MSG_DOOR_CHANGE   = "/badger/door"
-    const val MSG_STOP          = "/badger/stop"
-    const val MSG_TTS           = "/badger/tts"
-    const val MSG_PHONE_ALIVE   = "/badger/alive"
-    const val WEAR_MODE         = "/badger/mode"
 }
 
-// ── Serializable models sent over Wearable DataClient ───────────────────────
-
+// Maps to live_movement JOIN status_values
 @Serializable
 data class WearTruck(
-    val truckNumber: String,
-    val statusName: String?,
-    val statusColor: String?,
-    val location: String?
+    @SerialName("truck_number")   val truckNumber: String,
+    @SerialName("status_id")      val statusId: Int? = null,
+    @SerialName("current_location") val location: String? = null,
+    // Embedded from status_values join
+    @SerialName("status_values")  val statusValues: WearStatusEmbed? = null
+) {
+    val statusName: String? get() = statusValues?.statusName
+    val statusColor: String? get() = statusValues?.statusColor
+}
+
+@Serializable
+data class WearStatusEmbed(
+    @SerialName("status_name")  val statusName: String,
+    @SerialName("status_color") val statusColor: String
 )
 
+// Maps to loading_doors
 @Serializable
 data class WearDoor(
-    val id: Int,
-    val doorName: String,
-    val doorStatus: String,
-    val statusColor: String?
+    @SerialName("id")          val id: Int,
+    @SerialName("door_name")   val doorName: String,
+    @SerialName("door_status") val doorStatus: String,
+    @SerialName("sort_order")  val sortOrder: Int? = null
 )
 
+// Maps to status_values
 @Serializable
 data class WearStatus(
-    val id: Int,
-    val statusName: String,
-    val statusColor: String
+    @SerialName("id")           val id: Int,
+    @SerialName("status_name")  val statusName: String,
+    @SerialName("status_color") val statusColor: String
 )
-
-@Serializable
-data class WearStatusChange(
-    val truckNumber: String,
-    val statusId: Int
-)
-
-@Serializable
-data class WearDoorChange(
-    val doorId: Int,
-    val status: String
-)
-

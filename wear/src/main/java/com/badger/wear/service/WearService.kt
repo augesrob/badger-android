@@ -122,9 +122,9 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
             // Initial load
             try {
-                val trucks   = supabase.from("live_movement").select().decodeList<WearTruck>()
-                val doors    = supabase.from("loading_doors").select().decodeList<WearDoor>()
-                val statuses = supabase.from("status_values").select().decodeList<WearStatus>()
+                val trucks   = supabase.from("live_movement").select("truck_number, status_id, current_location, status_values(status_name, status_color)").decodeList<WearTruck>()
+                val doors    = supabase.from("loading_doors").select("id, door_name, door_status, sort_order").decodeList<WearDoor>()
+                val statuses = supabase.from("status_values").select("id, status_name, status_color").decodeList<WearStatus>()
                 trucks.forEach   { knownTruck[it.truckNumber] = it.statusName }
                 doors.forEach    { knownDoor[it.doorName]     = it.doorStatus }
                 _trucks.value   = trucks
@@ -146,7 +146,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
                     try {
-                        val updated = supabase.from("live_movement").select().decodeList<WearTruck>()
+                        val updated = supabase.from("live_movement").select("truck_number, status_id, current_location, status_values(status_name, status_color)").decodeList<WearTruck>()
                         updated.forEach { t ->
                             val prev = knownTruck[t.truckNumber]
                             if (prev != null && prev != t.statusName && t.statusName != null) {
@@ -163,7 +163,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.onEach {
                     try {
-                        val updated = supabase.from("loading_doors").select().decodeList<WearDoor>()
+                        val updated = supabase.from("loading_doors").select("id, door_name, door_status, sort_order").decodeList<WearDoor>()
                         updated.forEach { d ->
                             val prev = knownDoor[d.doorName]
                             if (prev != null && prev != d.doorStatus && d.doorStatus.isNotBlank()) {
