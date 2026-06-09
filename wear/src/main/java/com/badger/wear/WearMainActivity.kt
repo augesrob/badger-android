@@ -1,18 +1,15 @@
 package com.badger.wear
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,16 +22,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.wear.compose.material.*
 import com.badger.wear.service.WearService
+import com.badger.wear.util.WearLogger
 
 class WearMainActivity : ComponentActivity() {
 
     private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        com.badger.wear.util.WearLogger.i("WearMainActivity", "RECORD_AUDIO granted: $granted")
+        WearLogger.i("WearMainActivity", "RECORD_AUDIO granted: $granted")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,38 +51,42 @@ class WearMainActivity : ComponentActivity() {
 
 @Composable
 fun BadgerWatchApp() {
-    val trucks      by WearService.trucks.collectAsState()
-    val doors       by WearService.doors.collectAsState()
-    val statuses    by WearService.statuses.collectAsState()
+    val trucks       by WearService.trucks.collectAsState()
+    val doors        by WearService.doors.collectAsState()
+    val statuses     by WearService.statuses.collectAsState()
     val doorStatuses by WearService.doorStatuses.collectAsState()
-    val pttActive   by WearService.pttActive.collectAsState()
+    val pttActive    by WearService.pttActive.collectAsState()
 
-    var selectedTruck by remember { mutableStateOf<WearTruck?>(null) }
-    var selectedDoor  by remember { mutableStateOf<WearDoor?>(null) }
-    var showStopConfirm by remember { mutableStateOf(false) }
+    var selectedTruck    by remember { mutableStateOf<WearTruck?>(null) }
+    var selectedDoor     by remember { mutableStateOf<WearDoor?>(null) }
+    var showStopConfirm  by remember { mutableStateOf(false) }
+
+    // Group trucks under their door
+    val doorGroups = remember(doors, trucks) {
+        doors.sortedBy { it.sortOrder ?: 99 }.map { door ->
+            WearDoorGroup(door, trucks.filter { it.loadingDoorId == door.id }.sortedBy { it.truckNumber })
+        }
+    }
+    // Unassigned trucks (no door)
+    val unassigned = remember(trucks, doors) {
+        val assignedIds = doors.map { it.id }.toSet()
+        trucks.filter { it.loadingDoorId == null || it.loadingDoorId !in assignedIds }.sortedBy { it.truckNumber }
+    }
 
     val ctx = WearApp.instance
-    val darkBg   = Color(0xFF0F0F0F)
-    val amber    = Color(0xFFF59E0B)
-    val surface  = Color(0xFF1A1A1A)
 
     when {
         showStopConfirm -> StopConfirmScreen(
-            onConfirm = {
-                ctx.stopService(Intent(ctx, WearService::class.java))
-                showStopConfirm = false
-            },
-            onCancel = { showStopConfirm = false }
+            onConfirm = { ctx.stopService(Intent(ctx, WearService::class.java)); showStopConfirm = false },
+            onCancel  = { showStopConfirm = false }
         )
         selectedTruck != null -> StatusPickerScreen(
-            title = "Truck ${selectedTruck!!.truckNumber}",
+            title   = "Truck ${selectedTruck!!.truckNumber}",
             current = selectedTruck!!.statusName ?: "",
             options = statuses.map { it.statusName },
             colors  = statuses.associate { it.statusName to it.statusColor },
             onPick  = { statusName ->
-                val statusId = statuses.find { it.statusName == statusName }?.id
-                if (statusId != null) {
-                    // Send via intent so it reaches the running service
+                statuses.find { it.statusName == statusName }?.id?.let { statusId ->
                     ctx.startService(Intent(ctx, WearService::class.java).apply {
                         action = WearService.ACTION_STATUS_CHANGE
                         putExtra("truckNumber", selectedTruck!!.truckNumber)
@@ -96,7 +100,7 @@ fun BadgerWatchApp() {
         selectedDoor != null -> StatusPickerScreen(
             title    = "Door ${selectedDoor!!.doorName}",
             current  = selectedDoor!!.doorStatus,
-            options  = doorStatuses.ifEmpty { listOf("Loading", "End Of Truck Tote", "EOT+1", "Change Truck/Trailer", "Waiting", "Done for Night", "100%", "Move to Receiving", "Priority Change Truck/Trailer", "waiting on dead truck", "Smile, almost finished \uD83D\uDE01") },
+            options  = doorStatuses.ifEmpty { listOf("Loading","End Of Truck Tote","EOT+1","Change Truck/Trailer","Waiting","Done for Night","100%","Move to Receiving","Priority Change Truck/Trailer","waiting on dead truck","Smile, almost finished 😁") },
             colors   = emptyMap(),
             onPick   = { status ->
                 ctx.startService(Intent(ctx, WearService::class.java).apply {
@@ -109,65 +113,76 @@ fun BadgerWatchApp() {
             onCancel = { selectedDoor = null }
         )
         else -> MainScreen(
-            trucks    = trucks,
-            doors     = doors,
-            mode      = "📡 Live",
-            modeColor = Color(0xFF22C55E),
-            pttActive = pttActive,
-            darkBg    = darkBg,
-            amber     = amber,
-            surface   = surface,
-            onTruckTap = { selectedTruck = it },
-            onDoorTap  = { selectedDoor = it },
-            onPttStart = {
-                ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_START })
-            },
-            onPttStop = {
-                ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_STOP })
-            },
-            onStop = { showStopConfirm = true }
+            doorGroups   = doorGroups,
+            unassigned   = unassigned,
+            pttActive    = pttActive,
+            onTruckTap   = { selectedTruck = it },
+            onDoorTap    = { selectedDoor = it },
+            onPttStart   = { ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_START }) },
+            onPttStop    = { ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_STOP }) },
+            onStop       = { showStopConfirm = true }
         )
     }
 }
 
 @Composable
 fun MainScreen(
-    trucks: List<WearTruck>, doors: List<WearDoor>,
-    mode: String, modeColor: Color, pttActive: Boolean,
-    darkBg: Color, amber: Color, surface: Color,
+    doorGroups: List<WearDoorGroup>, unassigned: List<WearTruck>,
+    pttActive: Boolean,
     onTruckTap: (WearTruck) -> Unit, onDoorTap: (WearDoor) -> Unit,
     onPttStart: () -> Unit, onPttStop: () -> Unit, onStop: () -> Unit
 ) {
+    val darkBg  = Color(0xFF0F0F0F)
+    val amber   = Color(0xFFF59E0B)
+    val surface = Color(0xFF1A1A1A)
+
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize().background(darkBg),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        // Header
         item {
-            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
                 Text("🦡 Badger", color = amber, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-                Text(mode, color = modeColor, fontSize = 10.sp)
+                Text("📡 Live", color = Color(0xFF22C55E), fontSize = 10.sp)
             }
         }
-        if (doors.isNotEmpty()) {
-            item { Text("DOORS", color = Color(0xFF888888), fontSize = 9.sp, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)) }
-            items(doors) { door -> DoorRow(door = door, surface = surface, onTap = { onDoorTap(door) }) }
+
+        // Door groups
+        doorGroups.forEach { group ->
+            item {
+                DoorGroupCard(
+                    group    = group,
+                    surface  = surface,
+                    onDoorTap  = { onDoorTap(group.door) },
+                    onTruckTap = onTruckTap
+                )
+            }
         }
-        if (trucks.isNotEmpty()) {
-            item { Text("TRUCKS", color = Color(0xFF888888), fontSize = 9.sp, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)) }
-            items(trucks) { truck -> TruckRow(truck = truck, surface = surface, onTap = { onTruckTap(truck) }) }
+
+        // Unassigned trucks section
+        if (unassigned.isNotEmpty()) {
+            item {
+                Text("UNASSIGNED", color = Color(0xFF666666), fontSize = 9.sp,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
+            }
+            unassigned.forEach { truck ->
+                item { TruckRow(truck = truck, surface = surface, onTap = { onTruckTap(truck) }) }
+            }
         }
-        item {
-            Spacer(Modifier.height(8.dp))
-            PttButton(active = pttActive, onStart = onPttStart, onStop = onPttStop)
-        }
+
+        // PTT + Stop
+        item { Spacer(Modifier.height(6.dp)) }
+        item { PttButton(active = pttActive, onStart = onPttStart, onStop = onPttStop) }
         item {
             Chip(onClick = onStop, modifier = Modifier.fillMaxWidth(),
                 colors = ChipDefaults.chipColors(backgroundColor = Color(0xFF3F0000)),
                 label = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Stop, null, tint = Color.Red, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Stop Badger", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -178,39 +193,105 @@ fun MainScreen(
 }
 
 @Composable
+fun DoorGroupCard(
+    group: WearDoorGroup, surface: Color,
+    onDoorTap: () -> Unit, onTruckTap: (WearTruck) -> Unit
+) {
+    val door = group.door
+    val doorStatusColor = when {
+        door.doorStatus.contains("Loading", ignoreCase = true) -> Color(0xFFF59E0B)
+        door.doorStatus.contains("Done", ignoreCase = true)    -> Color(0xFF6B7280)
+        door.doorStatus.isBlank()                              -> Color(0xFF6B7280)
+        else                                                   -> Color(0xFF22C55E)
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(surface)
+    ) {
+        // Door header row — tap to change door status
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .clickable(onClick = onDoorTap)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = door.doorName,
+                color = Color(0xFF94A3B8),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text(
+                text = door.doorStatus.ifBlank { "—" },
+                color = doorStatusColor,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false).padding(start = 8.dp)
+            )
+        }
+
+        // Trucks assigned to this door
+        if (group.trucks.isEmpty()) {
+            Text(
+                text = "No trucks",
+                color = Color(0xFF444444),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 10.dp, bottom = 6.dp)
+            )
+        } else {
+            group.trucks.forEach { truck ->
+                val statusColor = try { Color(android.graphics.Color.parseColor(truck.statusColor ?: "#888888")) }
+                catch (_: Exception) { Color(0xFF888888) }
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { onTruckTap(truck) }
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("↳ ${truck.truckNumber}", color = Color(0xFFCCCCCC), fontSize = 11.sp)
+                    Text(
+                        text = truck.statusName ?: "—",
+                        color = statusColor,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+}
+
+@Composable
 fun TruckRow(truck: WearTruck, surface: Color, onTap: () -> Unit) {
     val statusColor = try { Color(android.graphics.Color.parseColor(truck.statusColor ?: "#888888")) }
     catch (_: Exception) { Color(0xFF888888) }
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-        .background(surface).clickable(onClick = onTap).padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .background(surface).clickable(onClick = onTap).padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(truck.truckNumber, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Text(truck.statusName ?: "—", color = statusColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-fun DoorRow(door: WearDoor, surface: Color, onTap: () -> Unit) {
-    val statusColor = when {
-        door.doorStatus.contains("Loading", ignoreCase = true) -> Color(0xFFF59E0B)
-        door.doorStatus.isBlank() -> Color(0xFF6B7280)
-        else -> Color(0xFF22C55E)
-    }
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-        .background(surface).clickable(onClick = onTap).padding(horizontal = 10.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(door.doorName, color = Color(0xFF94A3B8), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Text(door.doorStatus.ifBlank { "—" }, color = statusColor, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
 fun PttButton(active: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Box(modifier = Modifier.size(56.dp).clip(CircleShape)
-            .background(if (active) Color(0xFF7F1D1D) else Color(0xFF1C3A1C))
-            .clickable { if (active) onStop() else onStart() },
-            contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.size(56.dp).clip(CircleShape)
+                .background(if (active) Color(0xFF7F1D1D) else Color(0xFF1C3A1C))
+                .clickable { if (active) onStop() else onStart() },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(if (active) Icons.Default.MicOff else Icons.Default.Mic,
                 null, tint = Color.White, modifier = Modifier.size(28.dp))
         }
@@ -233,10 +314,13 @@ fun StatusPickerScreen(title: String, current: String, options: List<String>,
             val isSelected = option == current
             val optColor = try { Color(android.graphics.Color.parseColor(colors[option] ?: "#888888")) }
             catch (_: Exception) { Color(0xFF888888) }
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                .background(if (isSelected) Color(0xFF292524) else Color(0xFF1A1A1A))
-                .clickable { onPick(option) }.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                    .background(if (isSelected) Color(0xFF292524) else Color(0xFF1A1A1A))
+                    .clickable { onPick(option) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(option, color = if (isSelected) optColor else Color.White, fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -253,12 +337,13 @@ fun StatusPickerScreen(title: String, current: String, options: List<String>,
 
 @Composable
 fun StopConfirmScreen(onConfirm: () -> Unit, onCancel: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0F0F0F)).padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(Color(0xFF0F0F0F)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+    ) {
         Text("Stop Badger?", color = Color.Red, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(8.dp))
-        Text("Stops all monitoring\non this watch", color = Color(0xFF888888), fontSize = 11.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text("Stops all monitoring\non this watch", color = Color(0xFF888888), fontSize = 11.sp, textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Chip(onClick = onCancel, colors = ChipDefaults.chipColors(backgroundColor = Color(0xFF1A1A1A)),

@@ -159,7 +159,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             val knownDoor  = mutableMapOf<String, String?>()
 
             try {
-                val trucks   = supabase.from("live_movement").select(Columns.raw("truck_number, status_id, current_location, status_values(status_name, status_color)")).decodeList<WearTruck>()
+                val trucks   = supabase.from("live_movement").select(Columns.raw("truck_number, status_id, current_location, loading_door_id, status_values(status_name, status_color)")).decodeList<WearTruck>()
                 val doors    = supabase.from("loading_doors").select(Columns.raw("id, door_name, door_status, sort_order")).decodeList<WearDoor>()
                 val statuses = supabase.from("status_values").select(Columns.raw("id, status_name, status_color")).decodeList<WearStatus>()
                 trucks.forEach { knownTruck[it.truckNumber] = it.statusName }
@@ -194,7 +194,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach {
                     try {
-                        val updated = supabase.from("live_movement").select(Columns.raw("truck_number, status_id, current_location, status_values(status_name, status_color)")).decodeList<WearTruck>()
+                        val updated = supabase.from("live_movement").select(Columns.raw("truck_number, status_id, current_location, loading_door_id, status_values(status_name, status_color)")).decodeList<WearTruck>()
                         updated.forEach { t ->
                             val prev = knownTruck[t.truckNumber]
                             if (prev != null && prev != t.statusName && t.statusName != null) {
