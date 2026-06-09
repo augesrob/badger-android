@@ -48,9 +48,6 @@ class WearMainActivity : ComponentActivity() {
         setContent { BadgerWatchApp() }
     }
 }
-        setContent { BadgerWatchApp() }
-    }
-}
 
 @Composable
 fun BadgerWatchApp() {

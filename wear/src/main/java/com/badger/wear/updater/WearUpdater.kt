@@ -1,12 +1,12 @@
 package com.badger.wear.updater
 
+import android.app.DownloadManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
-import android.os.Build
-import android.util.Log
+import android.os.Environment
 import androidx.core.content.FileProvider
 import com.badger.wear.util.WearLogger
 import io.ktor.client.*
@@ -14,6 +14,7 @@ import io.ktor.client.engine.okhttp.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -24,11 +25,7 @@ import java.io.File
 private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/augesrob/badger-android/releases?per_page=50"
 private const val VERSION_CHECK_URL   = "https://badger.augesrob.net/api/version-wear"
 
-data class WearUpdateInfo(
-    val latestVersion: Int,
-    val tagName: String,
-    val downloadUrl: String,
-)
+data class WearUpdateInfo(val latestVersion: Int, val tagName: String, val downloadUrl: String)
 
 object WearUpdater {
 
@@ -44,19 +41,17 @@ object WearUpdater {
         return try {
             val body = http.get(VERSION_CHECK_URL) { header("User-Agent", "BadgerWear") }.bodyAsText()
             if (!body.trimStart().startsWith("{")) return null
-            val obj = json.parseToJsonElement(body).jsonObject
-            val versionCode  = obj["versionCode"]?.jsonPrimitive?.content?.toIntOrNull() ?: return null
-            val tagName      = obj["tagName"]?.jsonPrimitive?.content ?: return null
-            val downloadUrl  = obj["downloadUrl"]?.jsonPrimitive?.content ?: return null
+            val obj         = json.parseToJsonElement(body).jsonObject
+            val versionCode = obj["versionCode"]?.jsonPrimitive?.content?.toIntOrNull() ?: return null
+            val tagName     = obj["tagName"]?.jsonPrimitive?.content ?: return null
+            val downloadUrl = obj["downloadUrl"]?.jsonPrimitive?.content ?: return null
             if (versionCode <= currentVersionCode) {
-                WearLogger.i("WearUpdater", "Website: up to date at v$currentVersionCode")
-                return null
+                WearLogger.i("WearUpdater", "Website: up to date at v$currentVersionCode"); return null
             }
             WearLogger.i("WearUpdater", "Website: update found $tagName")
             WearUpdateInfo(versionCode, tagName, downloadUrl)
         } catch (e: Exception) {
-            WearLogger.w("WearUpdater", "Website check failed: ${e.message}")
-            null
+            WearLogger.w("WearUpdater", "Website check failed: ${e.message}"); null
         }
     }
 
@@ -66,30 +61,24 @@ object WearUpdater {
                 header("Accept", "application/vnd.github+json")
                 header("User-Agent", "BadgerWear")
             }.bodyAsText()
-
-            val releases   = json.parseToJsonElement(body).jsonArray
-            val latest     = releases.map { it.jsonObject }
+            val releases = json.parseToJsonElement(body).jsonArray
+            val latest   = releases.map { it.jsonObject }
                 .filter { it["tag_name"]?.jsonPrimitive?.content?.startsWith("access-v") == true }
                 .maxByOrNull { it["tag_name"]?.jsonPrimitive?.content?.removePrefix("access-v")?.toIntOrNull() ?: 0 }
                 ?: return null
-
             val tagName    = latest["tag_name"]?.jsonPrimitive?.content ?: return null
             val latestCode = tagName.removePrefix("access-v").toIntOrNull() ?: return null
             if (latestCode <= currentVersionCode) {
-                WearLogger.i("WearUpdater", "GitHub: up to date at v$currentVersionCode")
-                return null
+                WearLogger.i("WearUpdater", "GitHub: up to date at v$currentVersionCode"); return null
             }
-
             val wearApk = latest["assets"]?.jsonArray?.map { it.jsonObject }
                 ?.firstOrNull { (it["name"]?.jsonPrimitive?.content ?: "").let { n -> n.contains("wear") && n.endsWith(".apk") } }
                 ?: return null
-
             val downloadUrl = wearApk["browser_download_url"]?.jsonPrimitive?.content ?: return null
-            WearLogger.i("WearUpdater", "GitHub: update found $tagName -> ${wearApk["name"]?.jsonPrimitive?.content}")
+            WearLogger.i("WearUpdater", "GitHub: update found $tagName")
             WearUpdateInfo(latestCode, tagName, downloadUrl)
         } catch (e: Exception) {
-            WearLogger.w("WearUpdater", "GitHub check failed: ${e.message}")
-            null
+            WearLogger.w("WearUpdater", "GitHub check failed: ${e.message}"); null
         }
     }
 
@@ -100,76 +89,69 @@ object WearUpdater {
     ) = withContext(Dispatchers.IO) {
         try {
             onProgress("Downloading ${info.tagName}...")
-            WearLogger.i("WearUpdater", "Using DownloadManager for ${info.downloadUrl}")
-            val dm = context.getSystemService(android.app.DownloadManager::class.java)
-            val destFile = java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "badger-wear-update.apk")
+            WearLogger.i("WearUpdater", "Downloading ${info.downloadUrl}")
+            val dm       = context.getSystemService(DownloadManager::class.java)
+            val destFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "badger-wear-update.apk")
             if (destFile.exists()) destFile.delete()
-            val request = android.app.DownloadManager.Request(android.net.Uri.parse(info.downloadUrl))
+            val request = DownloadManager.Request(Uri.parse(info.downloadUrl))
                 .setTitle("Badger Watch Update")
                 .setDescription(info.tagName)
-                .setDestinationUri(android.net.Uri.fromFile(destFile))
+                .setDestinationUri(Uri.fromFile(destFile))
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true)
-                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             val downloadId = dm.enqueue(request)
             WearLogger.i("WearUpdater", "DownloadManager enqueued id=$downloadId")
-            // Poll until done
-            var done = false
+
+            var done     = false
             var attempts = 0
-            while (!done && attempts < 120) { // max 4 min
+            while (!done && attempts < 120) {
                 delay(2000)
                 attempts++
-                val query = android.app.DownloadManager.Query().setFilterById(downloadId)
-                dm.query(query).use { cursor ->
+                dm.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
                     if (cursor.moveToFirst()) {
-                        val statusCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS)
-                        when (cursor.getInt(statusCol)) {
-                            android.app.DownloadManager.STATUS_SUCCESSFUL -> {
+                        val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
+                        when (status) {
+                            DownloadManager.STATUS_SUCCESSFUL -> {
                                 done = true
                                 WearLogger.i("WearUpdater", "Download complete — installing")
                                 withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
                             }
-                            android.app.DownloadManager.STATUS_FAILED -> {
+                            DownloadManager.STATUS_FAILED -> {
                                 done = true
-                                val reasonCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_REASON)
-                                WearLogger.e("WearUpdater", "Download failed reason=${cursor.getInt(reasonCol)}")
+                                val reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
+                                WearLogger.e("WearUpdater", "Download failed reason=$reason")
                             }
                         }
                     }
                 }
             }
-            if (!done) WearLogger.w("WearUpdater", "Download timed out after 4min")
+            if (!done) WearLogger.w("WearUpdater", "Download timed out")
         } catch (e: Exception) {
-            WearLogger.e("WearUpdater", "DownloadManager error: ${e.message}")
+            WearLogger.e("WearUpdater", "Download/install failed: ${e.message}")
             onProgress("Update failed: ${e.message}")
         }
     }
-    }
 
-    // Wear OS: use PackageInstaller API for silent/background install
-    // Falls back to ACTION_VIEW if PackageInstaller fails
     private fun installApkSilent(context: Context, apkFile: File) {
         try {
-            val pi = context.packageManager.packageInstaller
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+            val pi       = context.packageManager.packageInstaller
+            val params   = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
             val sessionId = pi.createSession(params)
-            val session   = pi.openSession(sessionId)
-
+            val session  = pi.openSession(sessionId)
             apkFile.inputStream().use { input ->
                 session.openWrite("badger-wear.apk", 0, apkFile.length()).use { output ->
                     input.copyTo(output)
                     session.fsync(output)
                 }
             }
-
             val intent = Intent("com.badger.wear.INSTALL_COMPLETE").apply { setPackage(context.packageName) }
-            val pi2 = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            val pi2    = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             session.commit(pi2.intentSender)
             session.close()
             WearLogger.i("WearUpdater", "PackageInstaller session committed")
         } catch (e: Exception) {
-            WearLogger.w("WearUpdater", "PackageInstaller failed, falling back to ACTION_VIEW: ${e.message}")
-            // Fallback
+            WearLogger.w("WearUpdater", "PackageInstaller failed: ${e.message} — trying ACTION_VIEW")
             try {
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", apkFile)
                 context.startActivity(Intent(Intent.ACTION_VIEW).apply {
@@ -177,7 +159,7 @@ object WearUpdater {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
                 })
             } catch (e2: Exception) {
-                WearLogger.e("WearUpdater", "Fallback install also failed: ${e2.message}")
+                WearLogger.e("WearUpdater", "Fallback install failed: ${e2.message}")
             }
         }
     }
