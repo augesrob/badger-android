@@ -299,7 +299,11 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             WearLogger.i("WearService", "PTT uploaded to $path")
             // Insert record so phone/web pick it up via realtime
             supabase.from("ptt_messages").insert(
-                mapOf("file_path" to path, "source" to "watch", "device_id" to "wear-${Build.SERIAL}")
+                mapOf(
+                    "audio_url"   to "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/audio/$path",
+                    "sender"      to "watch",
+                    "duration_ms" to (bytes.size / 16)
+                )
             )
             file.delete()
         } catch (e: Exception) {
