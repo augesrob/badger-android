@@ -57,3 +57,10 @@ data class WearPrintroomEntry(
     @SerialName("row_order")      val rowOrder: Int? = null,
     @SerialName("is_end_marker")  val isEndMarker: Boolean? = null
 )
+
+@Serializable
+data class PttMessage(
+    @SerialName("audio_url")   val audioUrl: String,
+    @SerialName("sender")      val sender: String,
+    @SerialName("duration_ms") val durationMs: Int
+)

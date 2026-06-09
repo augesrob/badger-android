@@ -14,6 +14,7 @@ import com.badger.wear.WearApp
 import com.badger.wear.WearDoor
 import com.badger.wear.WearMainActivity
 import com.badger.wear.WearStatus
+import com.badger.wear.PttMessage
 import com.badger.wear.WearPrintroomEntry
 import com.badger.wear.WearTruck
 import com.badger.wear.updater.WearUpdateInfo
@@ -308,10 +309,10 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             WearLogger.i("WearService", "PTT uploaded to $path")
             // Insert record so phone/web pick it up via realtime
             supabase.from("ptt_messages").insert(
-                mapOf(
-                    "audio_url"   to "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/audio/$path",
-                    "sender"      to "watch",
-                    "duration_ms" to (bytes.size / 16)
+                PttMessage(
+                    audioUrl   = "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/audio/$path",
+                    sender     = "watch",
+                    durationMs = (bytes.size / 16)
                 )
             )
             file.delete()
