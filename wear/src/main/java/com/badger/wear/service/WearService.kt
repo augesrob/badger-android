@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import java.util.Locale
+import com.badger.wear.util.WearLogger
 
 class WearService : Service(), TextToSpeech.OnInitListener {
 
@@ -77,9 +78,10 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "badger:wear_wakelock").also { it.acquire() }
         tts = TextToSpeech(this, this)
+        WearLogger.init(this, supabase)
+        WearLogger.i("WearService", "Service started v${BuildConfig.VERSION_CODE}")
         startRealtime()
         scope.launch { checkForUpdate() }
-        Log.i("WearService", "Service started")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,7 +97,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     WearUpdater.downloadAndInstall(
                         this@WearService,
                         WearUpdateInfo(ver, tagName, url)
-                    ) { msg -> Log.i("WearService", "Update: $msg") }
+                    ) { msg -> WearLogger.i("WearService", "Update: $msg") }
                 }
             }
         }
@@ -129,9 +131,9 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                 _doors.value    = doors
                 _statuses.value = statuses
                 updateNotification("Badger Watch — Live ✅")
-                Log.i("WearService", "Initial data loaded: ${trucks.size} trucks, ${doors.size} doors")
+                WearLogger.i("WearService", "Initial data loaded: ${trucks.size} trucks, ${doors.size} doors")
             } catch (e: Exception) {
-                Log.w("WearService", "Initial load failed: ${e.message}")
+                WearLogger.w("WearService", "Initial load failed: ${e.message}")
                 updateNotification("Badger Watch — Reconnecting...")
                 delay(5000)
                 startRealtime()
@@ -151,12 +153,12 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                                 val msg = "Truck ${t.truckNumber}, ${t.statusName}"
                                 speak(msg)
                                 postAlert("🚚 Truck ${t.truckNumber}", "$prev → ${t.statusName}")
-                                Log.i("WearService", "TTS: $msg")
+                                WearLogger.i("WearService", "TTS: $msg")
                             }
                             knownTruck[t.truckNumber] = t.statusName
                         }
                         _trucks.value = updated
-                    } catch (e: Exception) { Log.w("WearService", "Truck update: ${e.message}") }
+                    } catch (e: Exception) { WearLogger.w("WearService", "Truck update: ${e.message}") }
                 }.launchIn(this)
 
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "loading_doors" }.onEach {
@@ -168,23 +170,23 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                                 val msg = "Door ${d.doorName}, ${d.doorStatus}"
                                 speak(msg)
                                 postAlert("🚪 Door ${d.doorName}", "$prev → ${d.doorStatus}")
-                                Log.i("WearService", "TTS: $msg")
+                                WearLogger.i("WearService", "TTS: $msg")
                             }
                             knownDoor[d.doorName] = d.doorStatus
                         }
                         _doors.value = updated
-                    } catch (e: Exception) { Log.w("WearService", "Door update: ${e.message}") }
+                    } catch (e: Exception) { WearLogger.w("WearService", "Door update: ${e.message}") }
                 }.launchIn(this)
 
                 channel.subscribe()
-                Log.i("WearService", "Realtime subscribed ✅")
+                WearLogger.i("WearService", "Realtime subscribed ✅")
                 updateNotification("Badger Watch — Live ✅")
 
                 // Keep-alive heartbeat — if channel drops, restart
                 while (isActive) {
                     delay(30_000)
                     if (channel.status.value.name != "SUBSCRIBED") {
-                        Log.w("WearService", "Channel dropped — restarting realtime")
+                        WearLogger.w("WearService", "Channel dropped — restarting realtime")
                         try { supabase.realtime.removeChannel(channel) } catch (_: Exception) {}
                         startRealtime()
                         return@launch
@@ -194,7 +196,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                 try { supabase.realtime.removeChannel(channel) } catch (_: Exception) {}
 
             } catch (e: Exception) {
-                Log.w("WearService", "Realtime failed: ${e.message} — retrying in 10s")
+                WearLogger.w("WearService", "Realtime failed: ${e.message} — retrying in 10s")
                 updateNotification("Badger Watch — Reconnecting...")
                 delay(10_000)
                 startRealtime()
@@ -210,7 +212,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                 supabase.from("live_movement").update({ set("status_id", statusId) }) {
                     filter { eq("truck_number", truckNumber) }
                 }
-            } catch (e: Exception) { Log.e("WearService", "Truck status change failed: ${e.message}") }
+            } catch (e: Exception) { WearLogger.e("WearService", "Truck status change failed: ${e.message}") }
         }
     }
 
@@ -220,7 +222,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                 supabase.from("loading_doors").update({ set("door_status", status) }) {
                     filter { eq("id", doorId) }
                 }
-            } catch (e: Exception) { Log.e("WearService", "Door status change failed: ${e.message}") }
+            } catch (e: Exception) { WearLogger.e("WearService", "Door status change failed: ${e.message}") }
         }
     }
 
@@ -228,19 +230,19 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
     private fun startPtt() {
         _pttActive.value = true
-        Log.i("WearService", "PTT started")
+        WearLogger.i("WearService", "PTT started")
         // TODO: record via watch mic and upload to Supabase storage
     }
 
     private fun stopPtt() {
         _pttActive.value = false
-        Log.i("WearService", "PTT stopped")
+        WearLogger.i("WearService", "PTT stopped")
     }
 
     // ── TTS ───────────────────────────────────────────────────────────────────
 
     private fun speak(text: String) {
-        if (!ttsReady || tts == null) { Log.w("WearService", "TTS not ready for: $text"); return }
+        if (!ttsReady || tts == null) { WearLogger.w("WearService", "TTS not ready for: $text"); return }
         tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "wear_${System.currentTimeMillis()}")
     }
 
@@ -249,9 +251,9 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             tts?.language = Locale.US
             ttsReady = true
             speak("Badger watch active")
-            Log.i("WearService", "TTS ready ✅")
+            WearLogger.i("WearService", "TTS ready ✅")
         } else {
-            Log.e("WearService", "TTS init failed: $status")
+            WearLogger.e("WearService", "TTS init failed: $status")
         }
     }
 
@@ -295,7 +297,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private suspend fun checkForUpdate() {
         try {
             val update = WearUpdater.checkForUpdate(BuildConfig.VERSION_CODE) ?: return
-            Log.i("WearService", "Update available: ${update.tagName}")
+            WearLogger.i("WearService", "Update available: ${update.tagName}")
             val installIntent = PendingIntent.getService(
                 this, 99,
                 Intent(this, WearService::class.java).apply {
@@ -314,7 +316,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     .setAutoCancel(true)
                     .setContentIntent(installIntent)
                     .build())
-        } catch (e: Exception) { Log.w("WearService", "Update check failed: ${e.message}") }
+        } catch (e: Exception) { WearLogger.w("WearService", "Update check failed: ${e.message}") }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
