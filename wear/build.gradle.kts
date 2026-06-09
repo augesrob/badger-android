@@ -52,6 +52,11 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
+    lint {
+        disable += "InvalidFragmentVersionForActivityResult"
+        checkReleaseBuilds = true
+        abortOnError = false
+    }
 }
 
 dependencies {

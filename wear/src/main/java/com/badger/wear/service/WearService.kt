@@ -73,7 +73,9 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
-    private var ttsSpokenWelcome = false
+    // Persisted so "Badger watch active" only fires once per app install, not every service restart
+    private val ttsSpokenWelcome get() = getSharedPreferences("badger_wear", Context.MODE_PRIVATE).getBoolean("tts_welcomed", false)
+    private fun markTtsWelcomeDone() = getSharedPreferences("badger_wear", Context.MODE_PRIVATE).edit().putBoolean("tts_welcomed", true).apply()
     private var wakeLock: PowerManager.WakeLock? = null
 
     // PTT
@@ -316,7 +318,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             ttsReady = true
-            if (!ttsSpokenWelcome) { ttsSpokenWelcome = true; speak("Badger watch active") }
+            if (!ttsSpokenWelcome) { markTtsWelcomeDone(); speak("Badger watch active") }
             WearLogger.i("WearService", "TTS ready ✅")
         } else {
             WearLogger.e("WearService", "TTS init failed: $status")
