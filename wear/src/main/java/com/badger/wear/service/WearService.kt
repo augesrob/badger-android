@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import java.util.Locale
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import com.badger.wear.util.WearLogger
 import com.badger.wear.util.WearLogShipper
 
@@ -44,6 +46,8 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_PTT_START  = "com.badger.wear.PTT_START"
         const val ACTION_PTT_STOP   = "com.badger.wear.PTT_STOP"
         const val ACTION_INSTALL_UPDATE = "com.badger.wear.INSTALL_UPDATE"
+        const val ACTION_STATUS_CHANGE  = "com.badger.wear.STATUS_CHANGE"
+        const val ACTION_DOOR_CHANGE    = "com.badger.wear.DOOR_CHANGE"
 
         var isRunning = false
 
@@ -55,12 +59,15 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         val trucks:    StateFlow<List<WearTruck>>  = _trucks.asStateFlow()
         val doors:     StateFlow<List<WearDoor>>   = _doors.asStateFlow()
         val statuses:  StateFlow<List<WearStatus>> = _statuses.asStateFlow()
-        val pttActive: StateFlow<Boolean>          = _pttActive.asStateFlow()
+        val pttActive:     StateFlow<Boolean>           = _pttActive.asStateFlow()
+        val doorStatuses:  StateFlow<List<String>>       = _doorStatuses.asStateFlow()
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope       = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val updateScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var ttsSpokenWelcome = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var realtimeJob: Job? = null
 
@@ -83,7 +90,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         WearLogger.init(this)
         WearLogger.i("WearService", "Service started v${BuildConfig.VERSION_CODE}")
         startRealtime()
-        scope.launch { checkForUpdate() }
+        updateScope.launch { checkForUpdate() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,6 +98,30 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             ACTION_STOP      -> stopClean()
             ACTION_PTT_START -> startPtt()
             ACTION_PTT_STOP  -> stopPtt()
+            ACTION_STATUS_CHANGE -> {
+                val truckNumber = intent.getStringExtra("truckNumber") ?: return START_STICKY
+                val statusId    = intent.getIntExtra("statusId", -1).takeIf { it != -1 } ?: return START_STICKY
+                scope.launch {
+                    try {
+                        supabase.from("live_movement").update({ set("status_id", statusId) }) {
+                            filter { eq("truck_number", truckNumber) }
+                        }
+                        WearLogger.i("WearService", "Status changed: $truckNumber -> $statusId")
+                    } catch (e: Exception) { WearLogger.e("WearService", "Status change failed: ${e.message}") }
+                }
+            }
+            ACTION_DOOR_CHANGE -> {
+                val doorId = intent.getIntExtra("doorId", -1).takeIf { it != -1 } ?: return START_STICKY
+                val status = intent.getStringExtra("status") ?: return START_STICKY
+                scope.launch {
+                    try {
+                        supabase.from("loading_doors").update({ set("door_status", status) }) {
+                            filter { eq("id", doorId) }
+                        }
+                        WearLogger.i("WearService", "Door changed: $doorId -> $status")
+                    } catch (e: Exception) { WearLogger.e("WearService", "Door change failed: ${e.message}") }
+                }
+            }
             ACTION_INSTALL_UPDATE -> {
                 val url     = intent.getStringExtra("downloadUrl") ?: return START_STICKY
                 val tagName = intent.getStringExtra("tagName") ?: return START_STICKY
