@@ -58,9 +58,9 @@ data class WearPrintroomEntry(
     @SerialName("is_end_marker")  val isEndMarker: Boolean? = null
 )
 
+// PTT insert — matches phone's ptt_messages schema (raw PCM base64)
 @Serializable
-data class PttMessage(
-    @SerialName("audio_url")   val audioUrl: String,
-    @SerialName("sender")      val sender: String,
-    @SerialName("duration_ms") val durationMs: Int
+data class WearPttInsert(
+    @SerialName("audio_b64") val audioB64: String,
+    @SerialName("sender")    val sender: String = "watch"
 )

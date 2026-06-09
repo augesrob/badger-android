@@ -3,6 +3,11 @@ package com.badger.wear.service
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
+import android.util.Base64
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
@@ -14,8 +19,8 @@ import com.badger.wear.WearApp
 import com.badger.wear.WearDoor
 import com.badger.wear.WearMainActivity
 import com.badger.wear.WearStatus
-import com.badger.wear.PttMessage
 import com.badger.wear.WearPrintroomEntry
+import com.badger.wear.WearPttInsert
 import com.badger.wear.WearTruck
 import com.badger.wear.updater.WearUpdateInfo
 import com.badger.wear.updater.WearUpdater
@@ -28,8 +33,6 @@ import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
-import io.github.jan.supabase.storage.Storage
-import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,14 +86,13 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private var wakeLock: PowerManager.WakeLock? = null
 
     // PTT
-    private var recorder: MediaRecorder? = null
-    private var pttFile: File? = null
+    private var recorder: MediaRecorder? = null  // unused, kept for reference
+    private var pttFile: File? = null  // unused
 
     private val supabase by lazy {
         createSupabaseClient(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_KEY) {
             install(Postgrest)
             install(Realtime)
-            install(Storage)
         }
     }
 
@@ -236,6 +238,20 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     } catch (e: Exception) { WearLogger.w("WearService", "Door update: ${e.message}") }
                 }.launchIn(this)
 
+                // Subscribe to incoming PTT from phone
+                channel.postgresChangeFlow<PostgresAction>("public") { table = "ptt_messages" }.onEach { action ->
+                    if (action !is PostgresAction.Insert) return@onEach
+                    try {
+                        val b64 = action.record["audio_b64"]?.jsonPrimitive?.content
+                        val sender = action.record["sender"]?.jsonPrimitive?.content
+                        if (b64.isNullOrEmpty() || sender == "watch") return@onEach
+                        WearLogger.i("WearService", "PTT incoming from ${sender ?: "phone"}")
+                        speak("Incoming message")
+                        val pcm = Base64.decode(b64, Base64.DEFAULT)
+                        launch { playPcm(pcm) }
+                    } catch (e: Exception) { WearLogger.w("WearService", "PTT receive: ${e.message}") }
+                }.launchIn(this)
+
                 channel.subscribe()
                 WearLogger.i("WearService", "Realtime subscribed ✅")
                 updateNotification("Badger Watch — Live ✅")
@@ -263,23 +279,30 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
     // ── PTT ───────────────────────────────────────────────────────────────────
 
+    // Raw PCM recording — same format as phone PushToTalkManager
+    private var audioRecord: android.media.AudioRecord? = null
+    private val pttChunks  = mutableListOf<ByteArray>()
+
     private fun startPtt() {
         if (_pttActive.value) return
         _pttActive.value = true
         WearLogger.i("WearService", "PTT recording started")
         try {
-            val file = File(cacheDir, "ptt_${System.currentTimeMillis()}.m4a")
-            pttFile = file
-            recorder = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()).apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioSamplingRate(16000)
-                setAudioEncodingBitRate(32000)
-                setOutputFile(file.absolutePath)
-                prepare()
-                start()
+            val minBuf = android.media.AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val rec = android.media.AudioRecord(
+                android.media.MediaRecorder.AudioSource.MIC,
+                8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuf * 4
+            )
+            if (rec.state != android.media.AudioRecord.STATE_INITIALIZED) { rec.release(); throw Exception("AudioRecord init failed") }
+            pttChunks.clear()
+            audioRecord = rec
+            rec.startRecording()
+            scope.launch(Dispatchers.IO) {
+                val buf = ByteArray(minBuf)
+                while (_pttActive.value) {
+                    val read = rec.read(buf, 0, buf.size)
+                    if (read > 0) pttChunks.add(buf.copyOf(read))
+                }
             }
         } catch (e: Exception) {
             WearLogger.e("WearService", "PTT record start failed: ${e.message}")
@@ -290,34 +313,67 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private fun stopPtt() {
         if (!_pttActive.value) return
         _pttActive.value = false
-        val file = pttFile ?: return
         try {
-            recorder?.apply { stop(); release() }
-            recorder = null
-            WearLogger.i("WearService", "PTT recording stopped — uploading ${file.length()} bytes")
-            scope.launch { uploadPtt(file) }
+            audioRecord?.apply { stop(); release() }
+            audioRecord = null
+            val total = pttChunks.sumOf { it.size }
+            if (total == 0) { WearLogger.w("WearService", "PTT: no audio captured"); return }
+            val pcm = ByteArray(total).also { out -> var pos = 0; pttChunks.forEach { c -> c.copyInto(out, pos); pos += c.size } }
+            pttChunks.clear()
+            WearLogger.i("WearService", "PTT recording stopped — uploading ${pcm.size} bytes PCM")
+            scope.launch(Dispatchers.IO) { uploadPttPcm(pcm) }
         } catch (e: Exception) {
             WearLogger.e("WearService", "PTT stop failed: ${e.message}")
         }
     }
 
+    private suspend fun uploadPttPcm(pcm: ByteArray) {
+        try {
+            val b64 = Base64.encodeToString(pcm, Base64.NO_WRAP)
+            supabase.from("ptt_messages").insert(WearPttInsert(audioB64 = b64, sender = "watch"))
+            WearLogger.i("WearService", "PTT sent — ${pcm.size} bytes")
+        } catch (e: Exception) {
+            WearLogger.e("WearService", "PTT send failed: ${e.message}")
+        }
+    }
+
     private suspend fun uploadPtt(file: File) {
         try {
-            val bytes = file.readBytes()
-            val path  = "ptt/${System.currentTimeMillis()}_watch.m4a"
-            supabase.storage.from("audio").upload(path, bytes)
-            WearLogger.i("WearService", "PTT uploaded to $path")
-            // Insert record so phone/web pick it up via realtime
+            val pcm    = file.readBytes()
+            val b64    = Base64.encodeToString(pcm, Base64.NO_WRAP)
+            // Use same format as phone: raw PCM base64 in audio_b64 column
             supabase.from("ptt_messages").insert(
-                PttMessage(
-                    audioUrl   = "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/audio/$path",
-                    sender     = "watch",
-                    durationMs = (bytes.size / 16)
-                )
+                WearPttInsert(audioB64 = b64, sender = "watch")
             )
+            WearLogger.i("WearService", "PTT sent — ${pcm.size} bytes PCM")
             file.delete()
         } catch (e: Exception) {
             WearLogger.e("WearService", "PTT upload failed: ${e.message}")
+        }
+    }
+
+    private suspend fun playPcm(pcm: ByteArray) = withContext(Dispatchers.Main) {
+        if (pcm.isEmpty()) return@withContext
+        try {
+            val minBuf = AudioTrack.getMinBufferSize(8000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val track  = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .setAudioFormat(AudioFormat.Builder()
+                    .setSampleRate(8000).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setBufferSizeInBytes(maxOf(minBuf, pcm.size))
+                .setTransferMode(AudioTrack.MODE_STATIC).build()
+            track.write(pcm, 0, pcm.size)
+            track.setVolume(AudioTrack.getMaxVolume())
+            track.play()
+            val durationMs = (pcm.size.toLong() * 1000L) / (8000 * 2)
+            WearLogger.i("WearService", "PTT playing ~${durationMs}ms")
+            delay(durationMs + 300)
+            track.stop(); track.release()
+        } catch (e: Exception) {
+            WearLogger.e("WearService", "PTT playback error: ${e.message}")
         }
     }
 
