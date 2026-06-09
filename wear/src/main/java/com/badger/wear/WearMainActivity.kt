@@ -240,7 +240,7 @@ fun DoorGroupCard(
                 text = "No trucks",
                 color = Color(0xFF444444),
                 fontSize = 10.sp,
-                modifier = Modifier.padding(horizontal = 10.dp, bottom = 6.dp)
+                modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp)
             )
         } else {
             group.trucks.forEach { truck ->
