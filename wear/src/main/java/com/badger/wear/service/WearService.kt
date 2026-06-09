@@ -14,6 +14,7 @@ import com.badger.wear.WearApp
 import com.badger.wear.WearDoor
 import com.badger.wear.WearMainActivity
 import com.badger.wear.WearStatus
+import com.badger.wear.WearPrintroomEntry
 import com.badger.wear.WearTruck
 import com.badger.wear.updater.WearUpdateInfo
 import com.badger.wear.updater.WearUpdater
@@ -57,13 +58,15 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         private val _doors        = MutableStateFlow<List<WearDoor>>(emptyList())
         private val _statuses     = MutableStateFlow<List<WearStatus>>(emptyList())
         private val _pttActive    = MutableStateFlow(false)
-        private val _doorStatuses = MutableStateFlow<List<String>>(emptyList())
+        private val _doorStatuses    = MutableStateFlow<List<String>>(emptyList())
+        private val _printroom        = MutableStateFlow<List<WearPrintroomEntry>>(emptyList())
 
         val trucks:       StateFlow<List<WearTruck>>  = _trucks.asStateFlow()
         val doors:        StateFlow<List<WearDoor>>   = _doors.asStateFlow()
         val statuses:     StateFlow<List<WearStatus>> = _statuses.asStateFlow()
         val pttActive:    StateFlow<Boolean>          = _pttActive.asStateFlow()
         val doorStatuses: StateFlow<List<String>>     = _doorStatuses.asStateFlow()
+        val printroom:    StateFlow<List<WearPrintroomEntry>> = _printroom.asStateFlow()
     }
 
     // Single supervisor scope — wakelock keeps it alive through downloads
@@ -174,6 +177,12 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     _doorStatuses.value = ds.mapNotNull { it["status_name"]?.jsonPrimitive?.content }
                 } catch (_: Exception) {}
                 updateNotification("Badger Watch — Live ✅")
+                // Load printroom entries for door grouping
+                try {
+                    val pr = supabase.from("printroom_entries").select(Columns.raw("truck_number, loading_door_id, batch_number, row_order, is_end_marker"))
+                        .decodeList<WearPrintroomEntry>()
+                    _printroom.value = pr.filter { it.isEndMarker != true && it.truckNumber != null }
+                } catch (_: Exception) {}
                 WearLogger.i("WearService", "Initial data loaded: ${trucks.size} trucks, ${doors.size} doors")
 
                 // Check for update ONCE after successful data load — inside scope so wakelock covers it

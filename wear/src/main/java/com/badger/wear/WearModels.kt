@@ -48,3 +48,12 @@ data class WearDoorGroup(
     val door: WearDoor,
     val trucks: List<WearTruck>
 )
+
+@Serializable
+data class WearPrintroomEntry(
+    @SerialName("truck_number")   val truckNumber: String? = null,
+    @SerialName("loading_door_id") val loadingDoorId: Int? = null,
+    @SerialName("batch_number")   val batchNumber: Int? = null,
+    @SerialName("row_order")      val rowOrder: Int? = null,
+    @SerialName("is_end_marker")  val isEndMarker: Boolean? = null
+)

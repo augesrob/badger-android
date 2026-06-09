@@ -55,22 +55,30 @@ fun BadgerWatchApp() {
     val doors        by WearService.doors.collectAsState()
     val statuses     by WearService.statuses.collectAsState()
     val doorStatuses by WearService.doorStatuses.collectAsState()
+    val printroom    by WearService.printroom.collectAsState()
     val pttActive    by WearService.pttActive.collectAsState()
 
     var selectedTruck    by remember { mutableStateOf<WearTruck?>(null) }
     var selectedDoor     by remember { mutableStateOf<WearDoor?>(null) }
     var showStopConfirm  by remember { mutableStateOf(false) }
 
-    // Group trucks under their door
-    val doorGroups = remember(doors, trucks) {
+    // Group trucks under their door via printroom_entries (same as website)
+    val doorGroups = remember(doors, trucks, printroom) {
+        // Build truck → door mapping from printroom
+        val truckToDoor = printroom
+            .filter { it.truckNumber != null && it.loadingDoorId != null }
+            .associate { it.truckNumber!! to it.loadingDoorId!! }
         doors.sortedBy { it.sortOrder ?: 99 }.map { door ->
-            WearDoorGroup(door, trucks.filter { it.loadingDoorId == door.id }.sortedBy { it.truckNumber })
+            val doorTrucks = trucks
+                .filter { truckToDoor[it.truckNumber] == door.id }
+                .sortedBy { printroom.find { pr -> pr.truckNumber == it.truckNumber }?.rowOrder ?: 999 }
+            WearDoorGroup(door, doorTrucks)
         }
     }
-    // Unassigned trucks (no door)
-    val unassigned = remember(trucks, doors) {
-        val assignedIds = doors.map { it.id }.toSet()
-        trucks.filter { it.loadingDoorId == null || it.loadingDoorId !in assignedIds }.sortedBy { it.truckNumber }
+    // Unassigned: trucks not in printroom at all
+    val unassigned = remember(trucks, printroom) {
+        val assignedTrucks = printroom.mapNotNull { it.truckNumber }.toSet()
+        trucks.filter { it.truckNumber !in assignedTrucks }.sortedBy { it.truckNumber }
     }
 
     val ctx = WearApp.instance
