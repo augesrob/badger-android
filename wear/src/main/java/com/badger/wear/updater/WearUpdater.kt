@@ -100,18 +100,50 @@ object WearUpdater {
     ) = withContext(Dispatchers.IO) {
         try {
             onProgress("Downloading ${info.tagName}...")
-            WearLogger.i("WearUpdater", "Downloading ${info.downloadUrl}")
-            val response = http.get(info.downloadUrl) { header("User-Agent", "BadgerWear") }
-            val bytes    = response.readRawBytes()
-            val file     = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "badger-wear-update.apk")
-            file.writeBytes(bytes)
-            WearLogger.i("WearUpdater", "Downloaded ${bytes.size} bytes")
-            onProgress("Installing...")
-            withContext(Dispatchers.Main) { installApkSilent(context, file) }
+            WearLogger.i("WearUpdater", "Using DownloadManager for ${info.downloadUrl}")
+            val dm = context.getSystemService(android.app.DownloadManager::class.java)
+            val destFile = java.io.File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), "badger-wear-update.apk")
+            if (destFile.exists()) destFile.delete()
+            val request = android.app.DownloadManager.Request(android.net.Uri.parse(info.downloadUrl))
+                .setTitle("Badger Watch Update")
+                .setDescription(info.tagName)
+                .setDestinationUri(android.net.Uri.fromFile(destFile))
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE)
+            val downloadId = dm.enqueue(request)
+            WearLogger.i("WearUpdater", "DownloadManager enqueued id=$downloadId")
+            // Poll until done
+            var done = false
+            var attempts = 0
+            while (!done && attempts < 120) { // max 4 min
+                delay(2000)
+                attempts++
+                val query = android.app.DownloadManager.Query().setFilterById(downloadId)
+                dm.query(query).use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val statusCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS)
+                        when (cursor.getInt(statusCol)) {
+                            android.app.DownloadManager.STATUS_SUCCESSFUL -> {
+                                done = true
+                                WearLogger.i("WearUpdater", "Download complete — installing")
+                                withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
+                            }
+                            android.app.DownloadManager.STATUS_FAILED -> {
+                                done = true
+                                val reasonCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_REASON)
+                                WearLogger.e("WearUpdater", "Download failed reason=${cursor.getInt(reasonCol)}")
+                            }
+                        }
+                    }
+                }
+            }
+            if (!done) WearLogger.w("WearUpdater", "Download timed out after 4min")
         } catch (e: Exception) {
-            WearLogger.e("WearUpdater", "Download/install failed: ${e.message}")
+            WearLogger.e("WearUpdater", "DownloadManager error: ${e.message}")
             onProgress("Update failed: ${e.message}")
         }
+    }
     }
 
     // Wear OS: use PackageInstaller API for silent/background install

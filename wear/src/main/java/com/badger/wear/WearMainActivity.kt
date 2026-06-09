@@ -1,9 +1,13 @@
 package com.badger.wear
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,11 +32,22 @@ import androidx.wear.compose.material.*
 import com.badger.wear.service.WearService
 
 class WearMainActivity : ComponentActivity() {
+
+    private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        com.badger.wear.util.WearLogger.i("WearMainActivity", "RECORD_AUDIO granted: $granted")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestAudio.launch(Manifest.permission.RECORD_AUDIO)
+        }
         if (!WearService.isRunning) {
             startForegroundService(Intent(this, WearService::class.java))
         }
+        setContent { BadgerWatchApp() }
+    }
+}
         setContent { BadgerWatchApp() }
     }
 }
