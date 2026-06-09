@@ -210,8 +210,13 @@ fun TruckRow(truck: WearTruck, surface: Color, onTap: () -> Unit) {
 
 @Composable
 fun DoorRow(door: WearDoor, surface: Color, onTap: () -> Unit) {
-    val statusColor = try { Color(android.graphics.Color.parseColor(door.statusColor ?: "#888888")) }
-    catch (_: Exception) { Color(0xFF888888) }
+    val statusColor = when {
+        door.doorStatus.contains("Loading", ignoreCase = true) -> Color(0xFFF59E0B)
+        door.doorStatus.contains("Empty", ignoreCase = true)   -> Color(0xFF6B7280)
+        door.doorStatus.contains("Closed", ignoreCase = true)  -> Color(0xFF6B7280)
+        door.doorStatus.isBlank()                              -> Color(0xFF6B7280)
+        else                                                   -> Color(0xFF22C55E)
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
