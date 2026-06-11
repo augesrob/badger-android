@@ -295,10 +295,10 @@ object AuthManager {
     // ── Default page access per role (admin + truck_mover handled by canAccess directly) ──
 
     private val DEFAULT_PAGE_ACCESS = mapOf(
-        "print_room"  to setOf("movement","preshift","printroom","tractors","chat","profile","notifications"),
-        "trainee"     to setOf("movement","preshift","printroom","tractors","chat","profile","notifications"),
-        "semi_driver" to setOf("movement","chat","profile","notifications"),
-        "driver"      to setOf("movement","chat","profile","notifications"),
+        "print_room"  to setOf("movement","preshift","printroom","tractors","chat","profile","notifications","drivers_view"),
+        "trainee"     to setOf("movement","preshift","printroom","tractors","chat","profile","notifications","drivers_view"),
+        "semi_driver" to setOf("movement","chat","profile","notifications","drivers_view"),
+        "driver"      to setOf("movement","chat","profile","notifications","drivers_view"),
     )
 
     // Features that allow editing / TTS per role

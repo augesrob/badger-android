@@ -228,7 +228,7 @@ private fun SplashScreen() {
 enum class Tab(val label: String, val emoji: String, val requiredPage: String, val isLive: Boolean = false) {
     Shift    ("Shift Setup",  "🖨️",  "printroom"),
     Live     ("Live",         "🚚",  "movement",  isLive = true),
-    LiveView ("Live View",    "👁️",  "movement"),
+    Drivers  ("Drivers",      "👁️",  "drivers_view"),
     Weather  ("Weather",      "🌤️",  "movement"),
     Chat     ("Chat",         "💬",  "chat"),
     Settings ("Settings",     "⚙️",  "notifications"),
@@ -431,7 +431,7 @@ fun BadgerAccessMain(profile: UserProfile) {
             when (tab) {
                 Tab.Shift    -> ShiftSetupScreen(profile, resetCounter)
                 Tab.Live     -> MovementScreen()
-                Tab.LiveView -> LiveViewScreen()
+                Tab.Drivers  -> LiveViewScreen()
                 Tab.Weather  -> WeatherScreen()
                 Tab.Chat     -> ChatScreen(profile = profile)
                 Tab.Settings -> SettingsScreen(profile = profile, resetCounter)
