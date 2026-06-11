@@ -307,7 +307,6 @@ fun BadgerAccessMain(profile: UserProfile) {
 
     val updateInfo         = MainActivity.pendingUpdate
     val scope             = rememberCoroutineScope()
-    val context           = LocalContext.current
 
     // ── Role / permissions change dialog ──────────────────────────────────
     var roleChangeDialog  by remember { mutableStateOf<AuthManager.ProfileEvent?>(null) }
