@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Context
 import android.content.Intent
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.UserProfile
@@ -34,17 +35,17 @@ import com.badger.trucks.ui.shiftsetup.SubScreenShell
 import com.badger.trucks.ui.theme.*
 
 private enum class SettingsSub {
-    Profile, Notifications,
+    Profile, Notifications, HiddenTabs,
     // Admin-only
     Users, Statuses, GlobalMsg, Backup, ApiMonitor, DataReset, Debug
 }
 
 private val SETTINGS_BY_ROLE = mapOf(
-    "admin"       to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.Users, SettingsSub.Statuses, SettingsSub.GlobalMsg, SettingsSub.Backup, SettingsSub.ApiMonitor, SettingsSub.DataReset, SettingsSub.Debug),
-    "print_room"  to listOf(SettingsSub.Profile, SettingsSub.Notifications),
-    "truck_mover" to listOf(SettingsSub.Profile, SettingsSub.Notifications),
-    "trainee"     to listOf(SettingsSub.Profile, SettingsSub.Notifications),
-    "driver"      to listOf(SettingsSub.Profile, SettingsSub.Notifications),
+    "admin"       to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.HiddenTabs, SettingsSub.Users, SettingsSub.Statuses, SettingsSub.GlobalMsg, SettingsSub.Backup, SettingsSub.ApiMonitor, SettingsSub.DataReset, SettingsSub.Debug),
+    "print_room"  to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.HiddenTabs),
+    "truck_mover" to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.HiddenTabs),
+    "trainee"     to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.HiddenTabs),
+    "driver"      to listOf(SettingsSub.Profile, SettingsSub.Notifications, SettingsSub.HiddenTabs),
 )
 
 @Composable
@@ -78,6 +79,7 @@ fun SettingsScreen(profile: UserProfile, resetCounter: Int = 0) {
             SettingsSub.ApiMonitor    -> SubScreenShell("🔌 API Monitor",      Color(0xFF06B6D4), { activeSub = null }) { ApiMonitorScreen() }
             SettingsSub.DataReset     -> SubScreenShell("⚠️ Data Reset",        Color(0xFFEF4444), { activeSub = null }) { DataResetScreen() }
             SettingsSub.Debug         -> SubScreenShell("🐛 Debug Logs",       Red500,   { activeSub = null }) { com.badger.trucks.ui.admin.DebugScreen() }
+            SettingsSub.HiddenTabs    -> SubScreenShell("👁 Hidden Tabs",       MutedText, { activeSub = null }) { HiddenTabsScreen() }
         }
     }
 }
@@ -231,6 +233,7 @@ private fun settingsDef(s: SettingsSub): SDef = when (s) {
     SettingsSub.ApiMonitor    -> SDef("🔌", "API Monitor",        "Live debug & event log",                Color(0xFF06B6D4))
     SettingsSub.DataReset     -> SDef("⚠️", "Data Reset",         "Reset print room, preshift & movement", Color(0xFFEF4444))
     SettingsSub.Debug         -> SDef("🐛", "Debug Logs",         "App diagnostics & logs",               Red500)
+    SettingsSub.HiddenTabs    -> SDef("👁", "Hidden Tabs",         "Show or hide tabs on this device",      MutedText)
 }
 
 @Composable

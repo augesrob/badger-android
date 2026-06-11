@@ -44,6 +44,7 @@ import com.badger.trucks.data.UserProfile
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.chat.ChatScreen
 import com.badger.trucks.ui.liveview.LiveViewScreen
+import com.badger.trucks.ui.settings.TabVisibilityPrefs
 import com.badger.trucks.ui.login.LoginScreen
 import com.badger.trucks.ui.movement.MovementScreen
 import com.badger.trucks.ui.settings.SettingsScreen
@@ -238,7 +239,12 @@ enum class Tab(val label: String, val emoji: String, val requiredPage: String, v
 
 @Composable
 fun BadgerAccessMain(profile: UserProfile) {
-    val visibleTabs = remember(profile.role) { Tab.entries.filter { AuthManager.canAccess(it.requiredPage) } }
+    val context = LocalContext.current
+    // Reload visible tabs whenever currentTab changes (catches return from Settings)
+    var tabRefresh by remember { mutableStateOf(0) }
+    val visibleTabs = remember(profile.role, tabRefresh) {
+        Tab.entries.filter { AuthManager.canAccess(it.requiredPage) && TabVisibilityPrefs.isVisible(context, it) }
+    }
     val startTab    = if (Tab.Live in visibleTabs) Tab.Live else visibleTabs.first()
 
     var currentTab        by remember { mutableStateOf(startTab) }
