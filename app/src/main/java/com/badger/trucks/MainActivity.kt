@@ -43,6 +43,7 @@ import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.UserProfile
 import com.badger.trucks.service.BadgerService
 import com.badger.trucks.ui.chat.ChatScreen
+import com.badger.trucks.ui.liveview.LiveViewScreen
 import com.badger.trucks.ui.login.LoginScreen
 import com.badger.trucks.ui.movement.MovementScreen
 import com.badger.trucks.ui.settings.SettingsScreen
@@ -225,11 +226,12 @@ private fun SplashScreen() {
 // ── Tab definition ────────────────────────────────────────────────────────────
 
 enum class Tab(val label: String, val emoji: String, val requiredPage: String, val isLive: Boolean = false) {
-    Shift   ("Shift Setup", "🖨️", "printroom"),
-    Live    ("Live",        "🚚", "movement",       isLive = true),
-    Weather ("Weather",     "🌤️", "movement"),      // accessible to anyone with movement access
-    Chat    ("Chat",        "💬", "chat"),
-    Settings("Settings",   "⚙️", "notifications"),
+    Shift    ("Shift Setup",  "🖨️",  "printroom"),
+    Live     ("Live",         "🚚",  "movement",  isLive = true),
+    LiveView ("Live View",    "👁️",  "movement"),
+    Weather  ("Weather",      "🌤️",  "movement"),
+    Chat     ("Chat",         "💬",  "chat"),
+    Settings ("Settings",     "⚙️",  "notifications"),
 }
 
 // ── Main shell ────────────────────────────────────────────────────────────────
@@ -429,6 +431,7 @@ fun BadgerAccessMain(profile: UserProfile) {
             when (tab) {
                 Tab.Shift    -> ShiftSetupScreen(profile, resetCounter)
                 Tab.Live     -> MovementScreen()
+                Tab.LiveView -> LiveViewScreen()
                 Tab.Weather  -> WeatherScreen()
                 Tab.Chat     -> ChatScreen(profile = profile)
                 Tab.Settings -> SettingsScreen(profile = profile, resetCounter)
