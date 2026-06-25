@@ -80,6 +80,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var ttsFullyInitialized = false  // true after onInit + delay
     // Persisted so "Badger watch active" only fires once per app install, not every service restart
     private val ttsSpokenWelcome get() = getSharedPreferences("badger_wear", Context.MODE_PRIVATE).getBoolean("tts_welcomed", false)
     private fun markTtsWelcomeDone() = getSharedPreferences("badger_wear", Context.MODE_PRIVATE).edit().putBoolean("tts_welcomed", true).apply()
@@ -385,7 +386,21 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             return
         }
         if (!ttsReady) {
-            WearLogger.w("WearService", "TTS not ready yet, attempting to speak anyway: '$text'")
+            WearLogger.w("WearService", "TTS not ready yet (engine init in progress), will retry: '$text'")
+            // Retry after a delay
+            scope.launch {
+                delay(200L)
+                if (ttsReady && tts != null) {
+                    try {
+                        val id = "wear_retry_" + System.currentTimeMillis()
+                        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, id)
+                        WearLogger.i("WearService", "TTS retry queued: '$text'")
+                    } catch (e: Exception) {
+                        WearLogger.e("WearService", "TTS retry error: " + e.message)
+                    }
+                }
+            }
+            return
         }
         try {
             val id = "wear_" + System.currentTimeMillis()
@@ -400,8 +415,17 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             ttsReady = true
-            if (!ttsSpokenWelcome) { markTtsWelcomeDone(); speak("Badger watch active") }
-            WearLogger.i("WearService", "TTS ready ✅")
+            WearLogger.i("WearService", "TTS engine initialized, waiting for full initialization...")
+            // Some devices (S25 Ultra) need a brief delay after onInit before speaking
+            scope.launch {
+                delay(500L)  // 500ms delay for engine to fully warm up
+                ttsFullyInitialized = true
+                if (!ttsSpokenWelcome) { 
+                    markTtsWelcomeDone()
+                    speak("Badger watch active") 
+                }
+                WearLogger.i("WearService", "TTS fully ready ✅")
+            }
         } else {
             WearLogger.e("WearService", "TTS init failed: $status")
         }
