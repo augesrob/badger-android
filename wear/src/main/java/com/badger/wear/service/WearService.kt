@@ -380,8 +380,20 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     // ── TTS ───────────────────────────────────────────────────────────────────
 
     private fun speak(text: String) {
-        if (!ttsReady || tts == null) return
-        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "wear_${System.currentTimeMillis()}")
+        if (tts == null) {
+            WearLogger.w("WearService", "TTS speak called but TTS is null: '$text'")
+            return
+        }
+        if (!ttsReady) {
+            WearLogger.w("WearService", "TTS not ready yet, attempting to speak anyway: '$text'")
+        }
+        try {
+            val id = "wear_" + System.currentTimeMillis()
+            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, id)
+            WearLogger.i("WearService", "TTS queued: '$text'")
+        } catch (e: Exception) {
+            WearLogger.e("WearService", "TTS speak error: " + e.message + " — text: '$text'")
+        }
     }
 
     override fun onInit(status: Int) {

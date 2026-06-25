@@ -46,6 +46,15 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Boot receiver — auto-start service on device boot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <!-- FileProvider for APK installs -->
         <provider
             android:name="androidx.core.content.FileProvider"
