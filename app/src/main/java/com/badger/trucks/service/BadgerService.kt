@@ -20,7 +20,6 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.wear.remote.interactions.RemoteActivityHelper
 import com.badger.trucks.R
 import com.badger.trucks.MainActivity
 import com.badger.trucks.util.RemoteLogger
@@ -667,17 +666,17 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // Send notification to paired watch — appears as system notification without Badger app running
     private fun pushWatchNotif(title: String, body: String, tag: String? = null) {
         try {
+            // Simply post same notification to phone — Wear OS automatically mirrors high-priority
+            // notifications to paired watch without needing app running
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notifId = (tag?.hashCode() ?: System.currentTimeMillis()).toInt()
             
-            // WearableExtender makes this notification visible on the paired watch
             val watchNotif = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_TRUCK_STATUS)
                 .setContentTitle(title)
                 .setContentText(body)
                 .setSmallIcon(R.drawable.badger_logo)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
-                .extend(androidx.wear.remote.interactions.RemoteActivityHelper.createNotificationBuilder(this, NotificationHelper.CHANNEL_TRUCK_STATUS).build())
                 .build()
             
             nm.notify(notifId, watchNotif)
