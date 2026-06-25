@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.wear.remote.interactions.RemoteActivityHelper
 import com.badger.trucks.R
 import com.badger.trucks.MainActivity
 import com.badger.trucks.util.RemoteLogger
@@ -663,6 +664,28 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun pushNotif(channelId: String, title: String, body: String, tag: String? = null) {
         NotificationHelper.postNotification(this, channelId, title, body, tag)
     }
+    // Send notification to paired watch — appears as system notification without Badger app running
+    private fun pushWatchNotif(title: String, body: String, tag: String? = null) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notifId = (tag?.hashCode() ?: System.currentTimeMillis()).toInt()
+            
+            // WearableExtender makes this notification visible on the paired watch
+            val watchNotif = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_TRUCK_STATUS)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setSmallIcon(R.drawable.badger_logo)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .extend(androidx.wear.remote.interactions.RemoteActivityHelper.createNotificationBuilder(this, NotificationHelper.CHANNEL_TRUCK_STATUS).build())
+                .build()
+            
+            nm.notify(notifId, watchNotif)
+            RemoteLogger.i("WatchNotif", "Sent to watch: $title - $body")
+        } catch (e: Exception) {
+            RemoteLogger.w("WatchNotif", "Failed to send watch notification: ${e.message}")
+        }
+    }
 
     // ── Realtime data sync ──────────────────────────────────────────────────────────────
 
@@ -773,9 +796,11 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                                 val prev = knownStatuses[truckNum]
                                 if (currName != null && prev != currName) {
                                     speak("Truck $truckNum, $currName")
-                                    if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS))
+                                    if (canNotify(NotificationPrefsStore.KEY_TRUCK_STATUS)) {
                                         pushNotif(NotificationHelper.CHANNEL_TRUCK_STATUS,
                                             "Truck $truckNum", "${prev ?: "New"} -> $currName", "truck_$truckNum")
+                                        pushWatchNotif("Truck $truckNum", "${prev ?: "New"} → $currName", "watch_truck_$truckNum")
+                                    }
                                 }
                                 // Only store valid status name — never store null which breaks next comparison
                                 if (currName != null) knownStatuses[truckNum] = currName
