@@ -13,22 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The google-services.json is already committed to the repo at app/src/main/
-      # For release builds, we need to ensure it's also available in the right location
-      - name: Set up google-services.json for release build
+      # Debug: List the files to ensure google-services.json exists
+      - name: Verify google-services.json exists
         run: |
-          # File should already exist in repo, just verify it
+          echo "Checking for google-services.json..."
+          find . -name "google-services.json" -type f
           if [ -f app/src/main/google-services.json ]; then
-            echo "✓ google-services.json found in app/src/main/"
-            # Also copy to app/src/ for release variant lookup
+            echo "✓ Found at app/src/main/google-services.json"
+            mkdir -p app/src
             cp app/src/main/google-services.json app/src/google-services.json
-            echo "✓ Copied to app/src/"
-            ls -la app/src/google-services.json
+            echo "✓ Copied to app/src/google-services.json"
+            ls -lh app/src/google-services.json
           else
-            echo "✗ google-services.json not found in app/src/main/"
+            echo "✗ NOT FOUND at app/src/main/google-services.json"
             exit 1
           fi
-        shell: bash
 
       # Set up Java
       - name: Set up JDK 17
