@@ -13,22 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Debug: List the files to ensure google-services.json exists
-      - name: Verify google-services.json exists
-        run: |
-          echo "Checking for google-services.json..."
-          find . -name "google-services.json" -type f
-          if [ -f app/src/main/google-services.json ]; then
-            echo "✓ Found at app/src/main/google-services.json"
-            mkdir -p app/src
-            cp app/src/main/google-services.json app/src/google-services.json
-            echo "✓ Copied to app/src/google-services.json"
-            ls -lh app/src/google-services.json
-          else
-            echo "✗ NOT FOUND at app/src/main/google-services.json"
-            exit 1
-          fi
-
       # Set up Java
       - name: Set up JDK 17
         uses: actions/setup-java@v4
