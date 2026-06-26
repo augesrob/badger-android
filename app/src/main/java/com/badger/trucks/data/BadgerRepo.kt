@@ -474,5 +474,20 @@ object BadgerRepo {
         client.postgrest["weather_config"]
             .select()
             .decodeSingleOrNull()
-}
 
+    // ===== FCM TOKENS =====
+    suspend fun updateFCMToken(token: String) {
+        try {
+            val deviceId = "${android.os.Build.MANUFACTURER}-${android.os.Build.MODEL}-${android.os.Build.DEVICE}"
+            val payload = buildJsonObject {
+                put("device_id", deviceId)
+                put("fcm_token", token)
+                put("last_updated", System.currentTimeMillis() / 1000)
+            }
+            client.postgrest["fcm_tokens"].upsert(payload.toString())
+            RemoteLogger.i("BadgerRepo", "? FCM token saved: ${token.take(20)}... (device: $deviceId)")
+        } catch (e: Exception) {
+            RemoteLogger.e("BadgerRepo", "? updateFCMToken failed: ${e.message}")
+        }
+    }
+}
