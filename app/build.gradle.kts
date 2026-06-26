@@ -5,6 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -72,6 +73,11 @@ android {
 }
 
 dependencies {
+    // Firebase Cloud Messaging (FCM)
+    val firebaseBom = platform("com.google.firebase:firebase-bom:33.0.0")
+    implementation(firebaseBom)
+    implementation("com.google.firebase:firebase-messaging")
+
     // Wearable Data Layer (phone <-> watch bridge)
     implementation("com.google.android.gms:play-services-wearable:18.1.0")
 

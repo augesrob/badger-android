@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.google.firebase.messaging.FirebaseMessaging
 import com.badger.trucks.R
 import com.badger.trucks.MainActivity
 import com.badger.trucks.util.RemoteLogger
@@ -271,6 +272,22 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 android.content.IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED))
         }
         scope.launch { refreshVoiceData() }
+        
+        // Register for FCM notifications
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val token = task.result
+                RemoteLogger.i("FCM", "🔑 FCM Token: ${token.take(20)}...")
+                // Save token to SharedPreferences
+                getSharedPreferences("badger_fcm", Context.MODE_PRIVATE)
+                    .edit().putString("fcm_token", token).apply()
+                // TODO: Send this token to your backend server for notification delivery
+                // Example: BadgerRepo.updateFCMToken(token)
+            } else {
+                RemoteLogger.e("FCM", "Failed to get FCM token: ${task.exception?.message}")
+            }
+        }
+        
         Log.d("BadgerService", "Service created")
         RemoteLogger.i("BadgerService", "Service started — URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
     }
