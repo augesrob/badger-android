@@ -666,10 +666,14 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     // Send notification to paired watch — appears as system notification without Badger app running
     private fun pushWatchNotif(title: String, body: String, tag: String? = null) {
         try {
-            // Simply post same notification to phone — Wear OS automatically mirrors high-priority
-            // notifications to paired watch without needing app running
+            RemoteLogger.i("WatchNotif", "📱 PUSHING NOTIF: $title - $body (tag=$tag)")
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (nm == null) {
+                RemoteLogger.e("WatchNotif", "❌ NotificationManager is null!")
+                return
+            }
             val notifId = (tag?.hashCode() ?: System.currentTimeMillis()).toInt()
+            RemoteLogger.i("WatchNotif", "📌 Notif ID: $notifId")
             
             val watchNotif = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_TRUCK_STATUS)
                 .setContentTitle(title)
@@ -680,9 +684,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 .build()
             
             nm.notify(notifId, watchNotif)
-            RemoteLogger.i("WatchNotif", "Sent to watch: $title - $body")
+            RemoteLogger.i("WatchNotif", "✅ Successfully sent to watch: $title - $body")
         } catch (e: Exception) {
-            RemoteLogger.w("WatchNotif", "Failed to send watch notification: ${e.message}")
+            RemoteLogger.e("WatchNotif", "❌ FAILED to send watch notification: ${e.javaClass.simpleName}: ${e.message}")
+            RemoteLogger.e("WatchNotif", "Stack trace: ${e.stackTrace.take(3).joinToString(",")}")
         }
     }
 
@@ -831,8 +836,10 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                             val curr = door.doorStatus
                             if (prev != null && curr != prev && curr.isNotBlank()) {
                                 speak("Door ${door.doorName}, $curr")
-                                if (canNotify(NotificationPrefsStore.KEY_DOOR_STATUS))
+                                if (canNotify(NotificationPrefsStore.KEY_DOOR_STATUS)) {
                                     pushNotif(NotificationHelper.CHANNEL_DOOR_STATUS, "🚪 Door ${door.doorName}", "$prev → $curr", "door_${door.doorName}")
+                                    pushWatchNotif("Door ${door.doorName}", "$prev → $curr", "watch_door_${door.doorName}")
+                                }
                             }
                             knownDoorStatus[door.doorName] = curr
                         }
