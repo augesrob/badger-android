@@ -14,9 +14,23 @@ jobs:
       - uses: actions/checkout@v4
 
       # Decode and create google-services.json from secret
-      - name: Decode and create google-services.json
+      - name: Create google-services.json from secret
         run: |
+          mkdir -p app/src/main
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/main/google-services.json
+          ls -la app/src/main/google-services.json
+        shell: bash
+
+      # Verify the file was created correctly
+      - name: Verify google-services.json
+        run: |
+          if [ -f app/src/main/google-services.json ]; then
+            echo "✓ google-services.json exists"
+            head -c 100 app/src/main/google-services.json
+          else
+            echo "✗ google-services.json not found"
+            exit 1
+          fi
         shell: bash
 
       # Set up Java
@@ -25,6 +39,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
 
       # Build release APKs
       - name: Build Release APKs
@@ -32,12 +47,14 @@ jobs:
 
       # Upload APKs as artifacts
       - name: Upload Phone APK
+        if: success()
         uses: actions/upload-artifact@v3
         with:
           name: badger-phone-release
           path: app/build/outputs/apk/release/*.apk
 
       - name: Upload Watch APK
+        if: success()
         uses: actions/upload-artifact@v3
         with:
           name: badger-watch-release
