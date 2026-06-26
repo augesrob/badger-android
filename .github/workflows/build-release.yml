@@ -13,22 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Decode and create google-services.json from secret
-      - name: Create google-services.json from secret
+      # The google-services.json is already committed to the repo at app/src/main/
+      # For release builds, we need to ensure it's also available in the right location
+      - name: Set up google-services.json for release build
         run: |
-          mkdir -p app/src/main
-          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/src/main/google-services.json
-          ls -la app/src/main/google-services.json
-        shell: bash
-
-      # Verify the file was created correctly
-      - name: Verify google-services.json
-        run: |
+          # File should already exist in repo, just verify it
           if [ -f app/src/main/google-services.json ]; then
-            echo "✓ google-services.json exists"
-            head -c 100 app/src/main/google-services.json
+            echo "✓ google-services.json found in app/src/main/"
+            # Also copy to app/src/ for release variant lookup
+            cp app/src/main/google-services.json app/src/google-services.json
+            echo "✓ Copied to app/src/"
+            ls -la app/src/google-services.json
           else
-            echo "✗ google-services.json not found"
+            echo "✗ google-services.json not found in app/src/main/"
             exit 1
           fi
         shell: bash
