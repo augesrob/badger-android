@@ -28,14 +28,14 @@ jobs:
       # Upload APKs as artifacts
       - name: Upload Phone APK
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: badger-phone-release
           path: app/build/outputs/apk/release/*.apk
 
       - name: Upload Watch APK
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: badger-watch-release
           path: wear/build/outputs/apk/release/*.apk
