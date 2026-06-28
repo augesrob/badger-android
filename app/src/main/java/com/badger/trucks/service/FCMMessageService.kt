@@ -41,7 +41,7 @@ class FCMMessageService : FirebaseMessagingService() {
     
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        RemoteLogger.i("FCM", "🔄 FCM Token refreshed: ${token.take(20)}...")
+        RemoteLogger.i("FCM", "🔄 FCM Token refreshed: ${token.substring(0, minOf(20, token.length))}...")
         
         // Save new token
         getSharedPreferences("badger_fcm", Context.MODE_PRIVATE)
