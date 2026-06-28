@@ -6,7 +6,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import com.google.android.gms.wearable.Wearable
 import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,22 +21,14 @@ class FCMMessageService : FirebaseMessagingService() {
         
         RemoteLogger.i("FCM", "📨 Notification received")
         
-        // Extract title and body
-        val title = remoteMessage.notification?.title ?: "Badger Alert"
-        val body = remoteMessage.notification?.body ?: ""
+        // Extract title and body from notification or data payload
+        val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "Badger Alert"
+        val body = remoteMessage.notification?.body ?: remoteMessage.data["body"] ?: ""
         
-        // Also check data payload
-        val data = remoteMessage.data
-        val dataTitle = data["title"] ?: title
-        val dataBody = data["body"] ?: body
-        
-        RemoteLogger.i("FCM", "Title: $dataTitle | Body: $dataBody")
+        RemoteLogger.i("FCM", "Title: $title | Body: $body")
         
         // Show notification on phone
-        showNotification(dataTitle, dataBody)
-        
-        // Forward to paired watch
-        forwardToWatch(dataTitle, dataBody, data)
+        showNotification(title, body)
     }
     
     override fun onNewToken(token: String) {
@@ -71,45 +62,11 @@ class FCMMessageService : FirebaseMessagingService() {
             .build()
         
         try {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(notificationId, notification)
             RemoteLogger.i("FCM", "✅ Phone notification shown")
         } catch (e: Exception) {
             RemoteLogger.e("FCM", "Failed to show notification: ${e.message}")
-        }
-    }
-    
-    private fun forwardToWatch(title: String, body: String, data: Map<String, String>) {
-        scope.launch {
-            try {
-                // Prepare payload for watch
-                val payload = mapOf(
-                    "title" to title,
-                    "body" to body,
-                    "timestamp" to System.currentTimeMillis().toString()
-                ).toMutableMap()
-                
-                // Add any extra data fields
-                payload.putAll(data.filterKeys { it !in listOf("title", "body") })
-                
-                // Send to watch via Wearable Data Layer
-                val dataClient = Wearable.getDataClient(this@FCMMessageService)
-                val request = com.google.android.gms.wearable.PutDataRequest.create("/badger/notification")
-                
-                // Add data items
-                payload.forEach { (key, value) ->
-                    request.dataMap.putString(key, value)
-                }
-                request.dataMap.putLong("timestamp", System.currentTimeMillis())
-                
-                dataClient.putDataItem(request).addOnSuccessListener {
-                    RemoteLogger.i("FCM", "✅ Forwarded to watch via Wearable API")
-                }.addOnFailureListener { e ->
-                    RemoteLogger.e("FCM", "❌ Failed to forward to watch: ${e.message}")
-                }
-            } catch (e: Exception) {
-                RemoteLogger.e("FCM", "Error forwarding to watch: ${e.message}")
-            }
         }
     }
 }
