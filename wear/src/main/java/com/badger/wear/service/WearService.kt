@@ -14,6 +14,8 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.tasks.await
 import com.badger.wear.BuildConfig
 import com.badger.wear.WearApp
 import com.badger.wear.WearDoor
@@ -112,6 +114,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         WearLogger.init(this)
         WearLogger.i("WearService", "Service started v${BuildConfig.VERSION_CODE}")
         startRealtime()
+        registerFCMToken()  // 🔔 Register watch FCM token for push notifications
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -464,6 +467,36 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             updateNotification("Badger Watch — Updating ${update.tagName}...")
             WearUpdater.downloadAndInstall(this, update) { msg -> WearLogger.i("WearService", "Update: $msg") }
         } catch (e: Exception) { WearLogger.w("WearService", "Update check failed: ${e.message}") }
+    }
+
+    // ── FCM Token Registration ─────────────────────────────────────────────────
+
+    private fun registerFCMToken() {
+        scope.launch {
+            try {
+                val fcmToken = FirebaseMessaging.getInstance().token.await()
+                val deviceId = "${android.os.Build.MANUFACTURER}-${android.os.Build.MODEL}-${android.os.Build.DEVICE}"
+                
+                // Save to SharedPreferences for reference
+                getSharedPreferences("badger_wear", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("fcm_token", fcmToken)
+                    .apply()
+                
+                // Register with Supabase fcm_tokens table
+                supabase.from("fcm_tokens").upsert(
+                    mapOf(
+                        "device_id" to deviceId,
+                        "fcm_token" to fcmToken,
+                        "last_updated" to (System.currentTimeMillis() / 1000)
+                    )
+                )
+                
+                WearLogger.i("WearService", "✅ FCM token registered: ${fcmToken.take(20)}...")
+            } catch (e: Exception) {
+                WearLogger.e("WearService", "❌ FCM registration failed: ${e.message}")
+            }
+        }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
