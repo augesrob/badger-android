@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1074776333833",
+    "project_id": "badger-access",
+    "storage_bucket": "badger-access.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1074776333833:android:6e572fc278bedbe49422d8",
+        "android_client_info": {
+          "package_name": "com.badger.access"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYAZIjlJTTFuiu_NR_9z363oHslNnEbc4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1074776333833:android:26dbc49150e2c84e9422d8",
+        "android_client_info": {
+          "package_name": "com.badger.trucks"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYAZIjlJTTFuiu_NR_9z363oHslNnEbc4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
