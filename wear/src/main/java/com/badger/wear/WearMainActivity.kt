@@ -218,7 +218,14 @@ fun NotificationOverlay(notification: NotificationEvent) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Icon
+                // Badger Logo at top
+                Text(
+                    text = "🦡",
+                    fontSize = 48.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                // Notification Icon
                 Text(
                     text = notification.icon,
                     fontSize = 32.sp,
