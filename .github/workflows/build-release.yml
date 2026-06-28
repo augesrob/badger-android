@@ -21,8 +21,18 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # Build release APKs
+      # Decode and place keystore
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_FILE }}" | base64 --decode > app/badger.keystore
+          ls -la app/badger.keystore
+
+      # Build release APKs with signing
       - name: Build Release APKs
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease :wear:assembleRelease
 
       # Upload APKs as artifacts
@@ -39,3 +49,9 @@ jobs:
         with:
           name: badger-watch-release
           path: wear/build/outputs/apk/release/*.apk
+
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "Build Status: ${{ job.status }}"
+          echo "APK Artifacts ready for auto-updater deployment"
