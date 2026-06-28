@@ -99,15 +99,38 @@ jobs:
           mv wear/build/outputs/apk/release/wear-release.apk \
              wear/build/outputs/apk/release/badger-wear-${{ steps.version.outputs.tag }}.apk
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Find the previous release tag (second most recent, since this build's tag isn't created yet)
+          LAST_TAG=$(git tag -l "access-v*" --sort=-version:refname | head -n 1)
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD~15..HEAD"
+          else
+            RANGE="$LAST_TAG..HEAD"
+          fi
+          # List real commits: no merge commits, no [skip ci] version bumps
+          CHANGES=$(git log $RANGE --no-merges --pretty=format:"- %s" \
+            | grep -vi "skip ci" \
+            | grep -vi "^- Merge branch" \
+            | grep -vi "bump access versionCode" \
+            || true)
+          if [ -z "$CHANGES" ]; then CHANGES="- Minor updates and fixes"; fi
+          echo "changes<<CHANGELOG_EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES" >> $GITHUB_OUTPUT
+          echo "CHANGELOG_EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Badger Access ${{ steps.version.outputs.tag }}"
           body: |
-            Auto-built from commit ${{ github.sha }}
+            **Version:** ${{ steps.version.outputs.tag }}
             **Branch:** badger-access
-            **Changes:** ${{ github.event.head_commit.message }}
+
+            ### What's Changed
+            ${{ steps.changelog.outputs.changes }}
           files: |
             app/build/outputs/apk/release/badger-access-${{ steps.version.outputs.tag }}.apk
             wear/build/outputs/apk/release/badger-wear-${{ steps.version.outputs.tag }}.apk
