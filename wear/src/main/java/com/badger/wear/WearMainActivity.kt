@@ -71,6 +71,51 @@ fun BadgerWatchApp() {
     var selectedDoor     by remember { mutableStateOf<WearDoor?>(null) }
     var showStopConfirm  by remember { mutableStateOf(false) }
     var notification    by remember { mutableStateOf<NotificationEvent?>(null) }
+    
+    // Track previous state to detect changes
+    var previousTrucks by remember { mutableStateOf<List<WearTruck>>(emptyList()) }
+    var previousDoors by remember { mutableStateOf<List<WearDoor>>(emptyList()) }
+
+    // Detect truck status changes
+    LaunchedEffect(trucks) {
+        trucks.forEach { truck ->
+            val prevTruck = previousTrucks.find { it.truckNumber == truck.truckNumber }
+            if (prevTruck != null && prevTruck.statusId != truck.statusId) {
+                // Status changed!
+                val statusColor = try { 
+                    Color(android.graphics.Color.parseColor(truck.statusColor ?: "#F59E0B")) 
+                } catch (_: Exception) { 
+                    Color(0xFFF59E0B) 
+                }
+                notification = NotificationEvent(
+                    title = "Truck ${truck.truckNumber}",
+                    message = truck.statusName ?: "Updated",
+                    color = statusColor,
+                    icon = "🚛"
+                )
+                WearLogger.i("WearMainActivity", "✅ Truck ${truck.truckNumber} status changed to ${truck.statusName}")
+            }
+        }
+        previousTrucks = trucks
+    }
+
+    // Detect door status changes
+    LaunchedEffect(doors) {
+        doors.forEach { door ->
+            val prevDoor = previousDoors.find { it.id == door.id }
+            if (prevDoor != null && prevDoor.doorStatus != door.doorStatus) {
+                // Door status changed!
+                notification = NotificationEvent(
+                    title = "Door ${door.doorName}",
+                    message = door.doorStatus.ifBlank { "Updated" },
+                    color = Color(0xFFF59E0B),
+                    icon = "🚪"
+                )
+                WearLogger.i("WearMainActivity", "✅ Door ${door.doorName} status changed to ${door.doorStatus}")
+            }
+        }
+        previousDoors = doors
+    }
 
     // Group trucks under their door via printroom_entries (same as website)
     val doorGroups = remember(doors, trucks, printroom) {
@@ -111,14 +156,6 @@ fun BadgerWatchApp() {
                             putExtra("truckNumber", selectedTruck!!.truckNumber)
                             putExtra("statusId", statusId)
                         })
-                        // Show notification
-                        notification = NotificationEvent(
-                            title = "Truck ${selectedTruck!!.truckNumber}",
-                            message = statusName,
-                            color = try { Color(android.graphics.Color.parseColor(statuses.find { it.statusName == statusName }?.statusColor ?: "#F59E0B")) }
-                            catch (_: Exception) { Color(0xFFF59E0B) },
-                            icon = "🚛"
-                        )
                     }
                     selectedTruck = null
                 },
@@ -135,13 +172,6 @@ fun BadgerWatchApp() {
                         putExtra("doorId", selectedDoor!!.id)
                         putExtra("status", status)
                     })
-                    // Show notification
-                    notification = NotificationEvent(
-                        title = "Door ${selectedDoor!!.doorName}",
-                        message = status,
-                        color = Color(0xFFF59E0B),
-                        icon = "🚪"
-                    )
                     selectedDoor = null
                 },
                 onCancel = { selectedDoor = null }
@@ -158,7 +188,7 @@ fun BadgerWatchApp() {
             )
         }
 
-        // Notification overlay
+        // Notification overlay - shows for 3 seconds then auto-dismisses
         if (notification != null) {
             LaunchedEffect(notification) {
                 delay(3000)  // Show for 3 seconds
