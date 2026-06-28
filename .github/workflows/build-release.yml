@@ -21,11 +21,12 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      # Decode and place keystore
+      # Decode and place keystore (using printf to avoid line breaks)
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_FILE }}" | base64 --decode > app/badger.keystore
-          ls -la app/badger.keystore
+          printf '%s' "${{ secrets.KEYSTORE_FILE }}" | base64 -d > app/badger.keystore
+          file app/badger.keystore
+          ls -lh app/badger.keystore
 
       # Build release APKs with signing
       - name: Build Release APKs
