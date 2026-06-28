@@ -1,8 +1,9 @@
 package com.badger.trucks.service
 
-import android.app.NotificationCompat
+import android.app.NotificationManager
 import android.content.Context
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.google.android.gms.wearable.Wearable
