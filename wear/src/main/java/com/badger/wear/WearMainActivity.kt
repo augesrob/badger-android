@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -180,8 +181,8 @@ fun NotificationOverlay(notification: NotificationEvent) {
                 .fillMaxWidth(0.9f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF1A1A1A).copy(alpha = 0.95f))
-                .padding(16.dp)
                 .border(2.dp, notification.color, RoundedCornerShape(16.dp))
+                .padding(16.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -283,14 +284,6 @@ fun MainScreen(
                 })
         }
     }
-}
-
-fun androidx.compose.ui.Modifier.border(
-    width: androidx.compose.ui.unit.Dp,
-    color: Color,
-    shape: androidx.compose.foundation.shape.RoundedCornerShape
-): androidx.compose.ui.Modifier {
-    return androidx.compose.foundation.border(width, color, shape)
 }
 
 @Composable
