@@ -5,6 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -69,6 +70,9 @@ dependencies {
 
     // Wearable Data Layer (phone <-> watch bridge)
     implementation("com.google.android.gms:play-services-wearable:18.1.0")
+
+    // Firebase (FCM push notifications)
+    implementation("com.google.firebase:firebase-messaging:24.1.0")
 
     // Core
     implementation("androidx.core:core-ktx:1.12.0")

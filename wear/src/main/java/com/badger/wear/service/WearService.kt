@@ -492,7 +492,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
                     )
                 )
                 
-                WearLogger.i("WearService", "✅ FCM token registered: ${fcmToken.take(20)}...")
+                WearLogger.i("WearService", "✅ FCM token registered: ${fcmToken.substring(0, minOf(20, fcmToken.length))}...")
             } catch (e: Exception) {
                 WearLogger.e("WearService", "❌ FCM registration failed: ${e.message}")
             }
