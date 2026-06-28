@@ -30,6 +30,7 @@ import androidx.core.content.ContextCompat
 import androidx.wear.compose.material.*
 import com.badger.wear.service.WearService
 import com.badger.wear.util.WearLogger
+import kotlinx.coroutines.delay
 
 class WearMainActivity : ComponentActivity() {
 
@@ -49,6 +50,13 @@ class WearMainActivity : ComponentActivity() {
     }
 }
 
+data class NotificationEvent(
+    val title: String,
+    val message: String,
+    val color: Color = Color(0xFFF59E0B),
+    val icon: String = "🔔"
+)
+
 @Composable
 fun BadgerWatchApp() {
     val trucks       by WearService.trucks.collectAsState()
@@ -61,6 +69,7 @@ fun BadgerWatchApp() {
     var selectedTruck    by remember { mutableStateOf<WearTruck?>(null) }
     var selectedDoor     by remember { mutableStateOf<WearDoor?>(null) }
     var showStopConfirm  by remember { mutableStateOf(false) }
+    var notification    by remember { mutableStateOf<NotificationEvent?>(null) }
 
     // Group trucks under their door via printroom_entries (same as website)
     val doorGroups = remember(doors, trucks, printroom) {
@@ -83,53 +92,129 @@ fun BadgerWatchApp() {
 
     val ctx = WearApp.instance
 
-    when {
-        showStopConfirm -> StopConfirmScreen(
-            onConfirm = { ctx.stopService(Intent(ctx, WearService::class.java)); showStopConfirm = false },
-            onCancel  = { showStopConfirm = false }
-        )
-        selectedTruck != null -> StatusPickerScreen(
-            title   = "Truck ${selectedTruck!!.truckNumber}",
-            current = selectedTruck!!.statusName ?: "",
-            options = statuses.map { it.statusName },
-            colors  = statuses.associate { it.statusName to it.statusColor },
-            onPick  = { statusName ->
-                statuses.find { it.statusName == statusName }?.id?.let { statusId ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        when {
+            showStopConfirm -> StopConfirmScreen(
+                onConfirm = { ctx.stopService(Intent(ctx, WearService::class.java)); showStopConfirm = false },
+                onCancel  = { showStopConfirm = false }
+            )
+            selectedTruck != null -> StatusPickerScreen(
+                title   = "Truck ${selectedTruck!!.truckNumber}",
+                current = selectedTruck!!.statusName ?: "",
+                options = statuses.map { it.statusName },
+                colors  = statuses.associate { it.statusName to it.statusColor },
+                onPick  = { statusName ->
+                    statuses.find { it.statusName == statusName }?.id?.let { statusId ->
+                        ctx.startService(Intent(ctx, WearService::class.java).apply {
+                            action = WearService.ACTION_STATUS_CHANGE
+                            putExtra("truckNumber", selectedTruck!!.truckNumber)
+                            putExtra("statusId", statusId)
+                        })
+                        // Show notification
+                        notification = NotificationEvent(
+                            title = "Truck ${selectedTruck!!.truckNumber}",
+                            message = statusName,
+                            color = try { Color(android.graphics.Color.parseColor(statuses.find { it.statusName == statusName }?.statusColor ?: "#F59E0B")) }
+                            catch (_: Exception) { Color(0xFFF59E0B) },
+                            icon = "🚛"
+                        )
+                    }
+                    selectedTruck = null
+                },
+                onCancel = { selectedTruck = null }
+            )
+            selectedDoor != null -> StatusPickerScreen(
+                title    = "Door ${selectedDoor!!.doorName}",
+                current  = selectedDoor!!.doorStatus,
+                options  = doorStatuses.ifEmpty { listOf("Loading","End Of Truck Tote","EOT+1","Change Truck/Trailer","Waiting","Done for Night","100%","Move to Receiving","Priority Change Truck/Trailer","waiting on dead truck","Smile, almost finished 😁") },
+                colors   = emptyMap(),
+                onPick   = { status ->
                     ctx.startService(Intent(ctx, WearService::class.java).apply {
-                        action = WearService.ACTION_STATUS_CHANGE
-                        putExtra("truckNumber", selectedTruck!!.truckNumber)
-                        putExtra("statusId", statusId)
+                        action = WearService.ACTION_DOOR_CHANGE
+                        putExtra("doorId", selectedDoor!!.id)
+                        putExtra("status", status)
                     })
-                }
-                selectedTruck = null
-            },
-            onCancel = { selectedTruck = null }
-        )
-        selectedDoor != null -> StatusPickerScreen(
-            title    = "Door ${selectedDoor!!.doorName}",
-            current  = selectedDoor!!.doorStatus,
-            options  = doorStatuses.ifEmpty { listOf("Loading","End Of Truck Tote","EOT+1","Change Truck/Trailer","Waiting","Done for Night","100%","Move to Receiving","Priority Change Truck/Trailer","waiting on dead truck","Smile, almost finished 😁") },
-            colors   = emptyMap(),
-            onPick   = { status ->
-                ctx.startService(Intent(ctx, WearService::class.java).apply {
-                    action = WearService.ACTION_DOOR_CHANGE
-                    putExtra("doorId", selectedDoor!!.id)
-                    putExtra("status", status)
-                })
-                selectedDoor = null
-            },
-            onCancel = { selectedDoor = null }
-        )
-        else -> MainScreen(
-            doorGroups   = doorGroups,
-            unassigned   = unassigned,
-            pttActive    = pttActive,
-            onTruckTap   = { selectedTruck = it },
-            onDoorTap    = { selectedDoor = it },
-            onPttStart   = { ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_START }) },
-            onPttStop    = { ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_STOP }) },
-            onStop       = { showStopConfirm = true }
-        )
+                    // Show notification
+                    notification = NotificationEvent(
+                        title = "Door ${selectedDoor!!.doorName}",
+                        message = status,
+                        color = Color(0xFFF59E0B),
+                        icon = "🚪"
+                    )
+                    selectedDoor = null
+                },
+                onCancel = { selectedDoor = null }
+            )
+            else -> MainScreen(
+                doorGroups   = doorGroups,
+                unassigned   = unassigned,
+                pttActive    = pttActive,
+                onTruckTap   = { selectedTruck = it },
+                onDoorTap    = { selectedDoor = it },
+                onPttStart   = { ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_START }) },
+                onPttStop    = { ctx.startService(Intent(ctx, WearService::class.java).apply { action = WearService.ACTION_PTT_STOP }) },
+                onStop       = { showStopConfirm = true }
+            )
+        }
+
+        // Notification overlay
+        if (notification != null) {
+            LaunchedEffect(notification) {
+                delay(3000)  // Show for 3 seconds
+                notification = null
+            }
+            NotificationOverlay(notification = notification!!)
+        }
+    }
+}
+
+@Composable
+fun NotificationOverlay(notification: NotificationEvent) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(12.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1A1A1A).copy(alpha = 0.95f))
+                .padding(16.dp)
+                .border(2.dp, notification.color, RoundedCornerShape(16.dp))
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Icon
+                Text(
+                    text = notification.icon,
+                    fontSize = 32.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                // Title
+                Text(
+                    text = notification.title,
+                    color = notification.color,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Message
+                Text(
+                    text = notification.message,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 
@@ -200,6 +285,14 @@ fun MainScreen(
     }
 }
 
+fun androidx.compose.ui.Modifier.border(
+    width: androidx.compose.ui.unit.Dp,
+    color: Color,
+    shape: androidx.compose.foundation.shape.RoundedCornerShape
+): androidx.compose.ui.Modifier {
+    return androidx.compose.foundation.border(width, color, shape)
+}
+
 @Composable
 fun DoorGroupCard(
     group: WearDoorGroup, surface: Color,
@@ -207,7 +300,7 @@ fun DoorGroupCard(
 ) {
     val door = group.door
     val doorStatusColor = when {
-        door.doorStatus.contains("Loading", ignoreCase = true) -> Color(0xFFF59E0B)
+        door.doorStatus.contains("Loading", ignoreCase = true) -> Color(0xFFFB923C)
         door.doorStatus.contains("Done", ignoreCase = true)    -> Color(0xFF6B7280)
         door.doorStatus.isBlank()                              -> Color(0xFF6B7280)
         else                                                   -> Color(0xFF22C55E)
