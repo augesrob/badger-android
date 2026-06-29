@@ -2,6 +2,7 @@ package com.badger.trucks.service
 
 import android.app.NotificationManager
 import android.content.Context
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.wearable.Wearable
@@ -11,12 +12,35 @@ import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.Locale
 
-class FCMMessageService : FirebaseMessagingService() {
+class FCMMessageService : FirebaseMessagingService(), TextToSpeech.OnInitListener {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var pendingText: String? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        tts = TextToSpeech(this, this)
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale.US
+            ttsReady = true
+            pendingText?.let { text ->
+                pendingText = null
+                tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "fcm_${System.currentTimeMillis()}")
+            }
+        } else {
+            RemoteLogger.e("FCM", "TTS init failed: $status")
+        }
+    }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
@@ -30,12 +54,33 @@ class FCMMessageService : FirebaseMessagingService() {
 
         RemoteLogger.i("FCM", "✅ Received: $title | $body")
 
-        // 1. Show notification on phone
+        // 1. Speak via TTS — if BadgerService is already running it handles its own TTS
+        //    via Realtime, but FCM is the guaranteed delivery path so we always speak here too.
+        //    BadgerService deduplicates via knownStatuses so the Realtime path won't double-speak.
+        val ttsText = if (body.isNotBlank()) "$title, $body" else title
+        speakNow(ttsText)
+
+        // 2. Show notification on phone
         showNotification(title, body)
 
-        // 2. Forward to watch via Wearable Data Layer — wakes WearMessageListenerService
+        // 3. Forward to watch via Wearable Data Layer — wakes WearMessageListenerService
         scope.launch {
             forwardToWatch(title, body)
+        }
+    }
+
+    private fun speakNow(text: String) {
+        try {
+            if (ttsReady && tts != null) {
+                tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "fcm_${System.currentTimeMillis()}")
+                RemoteLogger.i("FCM", "🔊 TTS: $text")
+            } else {
+                // TTS not ready yet — store and speak once onInit fires
+                pendingText = text
+                RemoteLogger.i("FCM", "🔊 TTS pending (not ready yet): $text")
+            }
+        } catch (e: Exception) {
+            RemoteLogger.e("FCM", "TTS speak error: ${e.message}")
         }
     }
 
@@ -86,5 +131,11 @@ class FCMMessageService : FirebaseMessagingService() {
         } catch (e: Exception) {
             RemoteLogger.e("FCM", "Failed to show notification: ${e.message}")
         }
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        super.onDestroy()
     }
 }
