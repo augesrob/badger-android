@@ -82,7 +82,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val voiceProcessing: StateFlow<Boolean>  = _voiceProcessing.asStateFlow()
         val voiceFeedback:   StateFlow<String?>  = _voiceFeedback.asStateFlow()
 
-        // Live truck/door data — updated optimistically on voice commands
+        // Live truck/door data ï¿½ updated optimistically on voice commands
         private val _liveTrucks          = MutableStateFlow<List<LiveMovement>>(emptyList())
         private val _liveDoors           = MutableStateFlow<List<LoadingDoor>>(emptyList())
         private val _liveDoorStatusValues     = MutableStateFlow<List<DoorStatusValue>>(emptyList())
@@ -92,7 +92,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         val liveDoorStatusValues:    StateFlow<List<DoorStatusValue>>       = _liveDoorStatusValues.asStateFlow()
         val liveDockLockStatusValues: StateFlow<List<DockLockStatusValue>>  = _liveDockLockStatusValues.asStateFlow()
 
-        // Unread chat tracking — roomId -> unread count
+        // Unread chat tracking ï¿½ roomId -> unread count
         private val _unreadCounts   = MutableStateFlow<Map<Int, Int>>(emptyMap())
         private val _pendingRoomId  = MutableStateFlow<Int?>(null)   // room to auto-open
         val unreadCounts: StateFlow<Map<Int, Int>> = _unreadCounts.asStateFlow()
@@ -142,8 +142,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var realtimeSyncJob: Job? = null
     private val realtimeMutex      = Mutex()
     private val realtimeRestarting = AtomicBoolean(false)
+    @Volatile private var realtimeRestartStartedAt = 0L  // epoch ms when restart lock acquired (stuck-lock watchdog)
     private var realtimeRetryCount = 0
-    private var realtimeNextRetryMs = 0L  // epoch ms — 0 means "retry immediately"
+    private var realtimeNextRetryMs = 0L  // epoch ms ï¿½ 0 means "retry immediately"
     private var wakeLock: PowerManager.WakeLock? = null
     private var pttManager:     PushToTalkManager?  = null
     private var commandRecognizer: BadgerSpeechRecognizer? = null
@@ -231,7 +232,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
         } catch (e: SecurityException) {
             Log.w("BadgerService", "FGS microphone blocked, falling back to dataSync: ${e.message}")
-            RemoteLogger.w("BadgerService", "FGS microphone blocked — starting without mic FGS type")
+            RemoteLogger.w("BadgerService", "FGS microphone blocked ï¿½ starting without mic FGS type")
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     startForeground(NOTIF_ID, buildServiceNotification(),
@@ -288,7 +289,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         }
         
         Log.d("BadgerService", "Service created")
-        RemoteLogger.i("BadgerService", "Service started — URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
+        RemoteLogger.i("BadgerService", "Service started ï¿½ URL: ${com.badger.trucks.BuildConfig.SUPABASE_URL}")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -382,7 +383,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         _pttIncoming.value  = false
         pttManager?.destroy()
         commandRecognizer?.destroy()
-        // unsubscribe() is suspend — run in a short-lived scope before cancelling main scope
+        // unsubscribe() is suspend ï¿½ run in a short-lived scope before cancelling main scope
         val cleanupScope = CoroutineScope(Dispatchers.IO)
         cleanupScope.launch {
             try { realtimeChannel?.unsubscribe() } catch (_: Exception) {}
@@ -407,7 +408,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             // Use default TTS stream (STREAM_MUSIC) so LoudnessEnhancer and volume boost work.
-            // STREAM_VOICE_CALL is quieter and ignores LoudnessEnhancer — don't use it.
+            // STREAM_VOICE_CALL is quieter and ignores LoudnessEnhancer ï¿½ don't use it.
             ttsParams = null
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
@@ -437,7 +438,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun requestAudioFocus() {
         if (audioFocusHeld) return
         val mode = NotificationPrefsStore.getString(this, NotificationPrefsStore.KEY_AUDIO_FOCUS,
-            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE) // default to exclusive — TikTok ignores transient
+            NotificationPrefsStore.AUDIO_FOCUS_EXCLUSIVE) // default to exclusive ï¿½ TikTok ignores transient
         if (mode == NotificationPrefsStore.AUDIO_FOCUS_OFF) return
         val focusType = when (mode) {
             NotificationPrefsStore.AUDIO_FOCUS_DUCK -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
@@ -509,7 +510,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
                 when (result) {
                     is VoiceResult.Success -> RemoteLogger.i("Voice", "? ${result.description}")
-                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "? ${result.message} — heard: \"$text\"")
+                    is VoiceResult.Error   -> RemoteLogger.w("Voice", "? ${result.message} ï¿½ heard: \"$text\"")
                     VoiceResult.Unknown    -> RemoteLogger.w("Voice", "?? Unknown: \"$text\"")
                 }
 
@@ -648,7 +649,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         WearBridgePhone.pushTts(text)
         val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
         if (result != TextToSpeech.SUCCESS) {
-            Log.e("BadgerService", "TTS speak() failed ($result) for: $text — reinitializing")
+            Log.e("BadgerService", "TTS speak() failed ($result) for: $text ï¿½ reinitializing")
             ttsCallbacks.remove(uttId)
             abandonAudioFocus()
             // Engine is broken, reinit
@@ -679,7 +680,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private fun pushNotif(channelId: String, title: String, body: String, tag: String? = null) {
         NotificationHelper.postNotification(this, channelId, title, body, tag)
     }
-    // Send notification to paired watch — appears as system notification without Badger app running
+    // Send notification to paired watch ï¿½ appears as system notification without Badger app running
     private fun pushWatchNotif(title: String, body: String, tag: String? = null) {
         try {
             RemoteLogger.i("WatchNotif", "?? PUSHING NOTIF: $title - $body (tag=$tag)")
@@ -726,7 +727,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             }
             RemoteLogger.i("BadgerService", "Keepalive scheduled in ${delayMs/1000}s")
         } catch (e: SecurityException) {
-            RemoteLogger.w("BadgerService", "Exact alarm blocked (${e.message}) — using inexact fallback")
+            RemoteLogger.w("BadgerService", "Exact alarm blocked (${e.message}) ï¿½ using inexact fallback")
             try {
                 alarm.set(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
                     android.os.SystemClock.elapsedRealtime() + delayMs, pending)
@@ -746,10 +747,21 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         // Enforce backoff: if a cooldown is active, skip unless it has elapsed
         val now = System.currentTimeMillis()
         if (realtimeNextRetryMs > now) {
-            RemoteLogger.w("BadgerService", "startRealtimeSync: in backoff for ${(realtimeNextRetryMs - now) / 1000}s more — skipping")
+            RemoteLogger.w("BadgerService", "startRealtimeSync: in backoff for ${(realtimeNextRetryMs - now) / 1000}s more ï¿½ skipping")
             return
         }
-        if (!realtimeRestarting.compareAndSet(false, true)) { RemoteLogger.w("BadgerService", "startRealtimeSync skipped -- already restarting"); return }
+        if (!realtimeRestarting.compareAndSet(false, true)) {
+            val heldMs = System.currentTimeMillis() - realtimeRestartStartedAt
+            if (heldMs < 90_000) {
+                RemoteLogger.w("BadgerService", "startRealtimeSync skipped -- already restarting (${heldMs / 1000}s)")
+                return
+            }
+            // Stuck-lock watchdog: a previous restart acquired the lock but never released it
+            // (e.g. cancelled mid-setup). Reclaim ownership so realtime can recover instead of
+            // deadlocking on "already restarting" forever.
+            RemoteLogger.e("BadgerService", "startRealtimeSync: restart lock stuck ${heldMs / 1000}s -- forcing reclaim")
+        }
+        realtimeRestartStartedAt = System.currentTimeMillis()
         realtimeSyncJob?.cancel()
         realtimeSyncJob = scope.launch {
             realtimeMutex.withLock {
@@ -780,21 +792,21 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 // before we register flows, causing postgresChangeFlow to throw IllegalStateException.
                 // Poll up to 3 s for the channel to reach UNSUBSCRIBED before registering flows.
                 if (channel.status.value.name != "UNSUBSCRIBED") {
-                    RemoteLogger.w("BadgerService", "Channel $channelName in ${channel.status.value.name} — unsubscribing before flow registration")
+                    RemoteLogger.w("BadgerService", "Channel $channelName in ${channel.status.value.name} ï¿½ unsubscribing before flow registration")
                     try { channel.unsubscribe() } catch (_: Exception) {}
                     var waited = 0
                     while (channel.status.value.name != "UNSUBSCRIBED" && waited < 3000) {
                         delay(200); waited += 200
                     }
                     if (channel.status.value.name != "UNSUBSCRIBED") {
-                        RemoteLogger.e("BadgerService", "Channel $channelName stuck in ${channel.status.value.name} after ${waited}ms — aborting setup")
+                        RemoteLogger.e("BadgerService", "Channel $channelName stuck in ${channel.status.value.name} after ${waited}ms ï¿½ aborting setup")
                         try { BadgerRepo.removeChannel(channel) } catch (_: Exception) {}
                         realtimeChannel = null
                         throw IllegalStateException("Channel stuck in ${channel.status.value.name}")
                     }
                 }
 
-                // Register ALL flows before subscribe() — use launchIn(this) so they
+                // Register ALL flows before subscribe() ï¿½ use launchIn(this) so they
                 // are children of this job and cancel together, preventing AtomicMutableList race
                 channel.postgresChangeFlow<PostgresAction>("public") { table = "live_movement" }.onEach { action ->
                     try {
@@ -822,7 +834,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                                         pushWatchNotif("Truck $truckNum", "${prev ?: "New"} ? $currName", "watch_truck_$truckNum")
                                     }
                                 }
-                                // Only store valid status name — never store null which breaks next comparison
+                                // Only store valid status name ï¿½ never store null which breaks next comparison
                                 if (currName != null) knownStatuses[truckNum] = currName
                             }
                         }
@@ -894,7 +906,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     catch (e: Exception) { Log.e("BadgerService", "DockLockStatusValues: ${e.message}") }
                 }.launchIn(this)
 
-                // Chat — separate channel subscribed before main to avoid ordering issues
+                // Chat ï¿½ separate channel subscribed before main to avoid ordering issues
                 val chatChannel = BadgerRepo.realtimeChannel("badger-chat-${java.util.UUID.randomUUID()}")
                 chatRealtimeChannel = chatChannel
                 chatChannel.postgresChangeFlow<PostgresAction.Insert>("public") { table = "messages" }.onEach { action ->
@@ -972,13 +984,20 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
 
             } catch (e: Exception) {
-                if (e is CancellationException) return@launch  // intentionally cancelled — don't retry, don't touch realtimeRestarting
+                if (e is CancellationException) {
+                    // Release the lock UNLESS a newer restart job has already replaced us
+                    // (line above reassigns realtimeSyncJob before cancelling the old one).
+                    // Holding it on external cancellation is what deadlocked realtime forever.
+                    if (realtimeSyncJob == coroutineContext[Job]) realtimeRestarting.set(false)
+                    return@launch
+                }
+                // intentionally cancelled ï¿½ don't retry, don't touch realtimeRestarting
                 realtimeRetryCount++
                 // Exponential backoff: 10s, 20s, 40s, 80s, cap at 120s
                 // After 10 consecutive failures take a 5-minute pause to avoid log spam
                 val backoffMs = when {
                     realtimeRetryCount > 10 -> {
-                        RemoteLogger.e("BadgerService", "Realtime: ${realtimeRetryCount} consecutive failures — cooling down 5 min")
+                        RemoteLogger.e("BadgerService", "Realtime: ${realtimeRetryCount} consecutive failures ï¿½ cooling down 5 min")
                         5 * 60 * 1000L
                     }
                     else -> minOf(10_000L * (1L shl (realtimeRetryCount - 1).coerceAtMost(3)), 120_000L)
@@ -1006,7 +1025,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_SERVICE)
             .setContentTitle("?? Badger Live")
-            .setContentText("Say \"Badger\" to issue a command • TTS ${if (ttsEnabled) "ON ??" else "OFF ??"}")
+            .setContentText("Say \"Badger\" to issue a command ï¿½ TTS ${if (ttsEnabled) "ON ??" else "OFF ??"}")
             .setSmallIcon(R.drawable.badger_logo)
             .setContentIntent(openIntent)
             .setOngoing(true)
