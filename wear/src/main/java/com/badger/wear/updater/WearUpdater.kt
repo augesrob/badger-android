@@ -103,11 +103,13 @@ object WearUpdater {
             val downloadId = dm.enqueue(request)
             WearLogger.i("WearUpdater", "DownloadManager enqueued id=$downloadId")
 
-            var done       = false
-            var attempts   = 0
-            var lastStatus = -1
-            var totalBytes = -1L
-            while (!done && attempts < 300) {  // up to 10 min
+            var done         = false
+            var attempts     = 0
+            var lastStatus   = -1
+            var totalBytes   = -1L
+            var lastBytes    = -1L
+            var stalledPolls = 0
+            while (!done && attempts < 300) {  // up to 10 min — watch Wi-Fi needs 4-6 min for ~55 MB, never shorten below that
                 delay(2000)
                 attempts++
                 var status = -1
@@ -133,17 +135,28 @@ object WearUpdater {
                 when (status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {
                         done = true
-                        WearLogger.i("WearUpdater", "Download complete — installing")
-                        withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
+                        if (totalBytes > 0 && gotBytes < totalBytes) {
+                            WearLogger.e("WearUpdater", "STATUS_SUCCESSFUL but incomplete ($gotBytes/$totalBytes bytes) — aborting")
+                            destFile.delete()
+                        } else {
+                            installIfValidApk(context, destFile)
+                        }
                     }
                     DownloadManager.STATUS_FAILED -> done = true
                     else -> {
-                        // Fallback: DownloadManager status queries are flaky on Wear.
-                        // If the file is fully written, install regardless of reported status.
-                        if (totalBytes > 0 && destFile.exists() && destFile.length() >= totalBytes) {
-                            done = true
-                            WearLogger.i("WearUpdater", "File complete (${destFile.length()} bytes) despite status=$status — installing")
-                            withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
+                        // NO file-size fallback here: Samsung's DownloadManager preallocates the
+                        // destination file at full size, so destFile.length() >= totalBytes is true
+                        // seconds into the download (v207 committed a half-empty APK this way →
+                        // INSTALL_PARSE_FAILED_NOT_APK). Trust only STATUS_SUCCESSFUL above.
+                        // Abort early only if the byte counter itself stops moving for ~2 min.
+                        if (gotBytes == lastBytes) {
+                            if (++stalledPolls >= 60) {
+                                done = true
+                                WearLogger.w("WearUpdater", "Download stalled at $gotBytes/$totalBytes bytes for 2 min — aborting")
+                                try { dm.remove(downloadId) } catch (_: Exception) {}
+                            }
+                        } else {
+                            lastBytes = gotBytes; stalledPolls = 0
                         }
                     }
                 }
@@ -153,6 +166,19 @@ object WearUpdater {
             WearLogger.e("WearUpdater", "Download/install failed: ${e.message}")
             onProgress("Update failed: ${e.message}")
         }
+    }
+
+    // Gate before PackageInstaller: if the framework can't parse the file as an APK,
+    // installing is guaranteed to fail — delete it so the next check starts clean.
+    private suspend fun installIfValidApk(context: Context, apkFile: File) {
+        val pkg = context.packageManager.getPackageArchiveInfo(apkFile.path, 0)
+        if (pkg == null) {
+            WearLogger.e("WearUpdater", "Downloaded file is not a parsable APK (${apkFile.length()} bytes) — deleting, not installing")
+            apkFile.delete()
+            return
+        }
+        WearLogger.i("WearUpdater", "Download complete, APK validated (versionCode=${pkg.longVersionCode}) — installing")
+        withContext(Dispatchers.Main) { installApkSilent(context, apkFile) }
     }
 
     private fun installApkSilent(context: Context, apkFile: File) {
