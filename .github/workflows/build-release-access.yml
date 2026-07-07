@@ -84,6 +84,7 @@ jobs:
       - name: Build Release APKs (phone + watch)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VERSION_CODE: ${{ steps.version.outputs.new }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
