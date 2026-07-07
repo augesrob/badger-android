@@ -447,6 +447,19 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             WearLogger.w("WearService", "Complication update failed: ${e.message}")
         }
 
+        // Direct launch -- with SYSTEM_ALERT_WINDOW granted (adb appops) the service may
+        // start activities from the background, so the card appears over the watch face
+        // even while the screen is on. Falls back to the full-screen intent below.
+        try {
+            startActivity(Intent(this, com.badger.wear.status.StatusPopupActivity::class.java).apply {
+                putExtra(com.badger.wear.status.StatusPopupActivity.EXTRA_TITLE, cleanTitle)
+                putExtra(com.badger.wear.status.StatusPopupActivity.EXTRA_BODY, body)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            })
+        } catch (e: Exception) {
+            WearLogger.w("WearService", "Popup direct start failed: ${e.message}")
+        }
+
         // Full-screen intent -- pops the status card over the watch face (alarm mechanism)
         val popup = PendingIntent.getActivity(
             this,
