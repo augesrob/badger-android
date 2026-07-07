@@ -145,7 +145,9 @@ object WearUpdater {
                     session.fsync(output)
                 }
             }
-            val intent = Intent("com.badger.wear.INSTALL_COMPLETE").apply { setPackage(context.packageName) }
+            // Explicit component so the callback ALWAYS reaches InstallReceiver, which
+            // launches the user-confirmation dialog (without it the session stalls forever)
+            val intent = Intent(context, InstallReceiver::class.java).setAction("com.badger.wear.INSTALL_COMPLETE")
             val pi2    = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             session.commit(pi2.intentSender)
             session.close()

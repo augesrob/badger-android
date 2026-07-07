@@ -92,6 +92,11 @@
             </intent-filter>
         </service>
 
+        <!-- Handles PackageInstaller callbacks for self-updates (launches confirm dialog) -->
+        <receiver
+            android:name=".updater.InstallReceiver"
+            android:exported="false" />
+
         <!-- Boot receiver — auto-start service on device boot -->
         <receiver
             android:name=".BootReceiver"
