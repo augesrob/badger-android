@@ -569,7 +569,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             cachedDockLockStatusValues = BadgerRepo.getDockLockStatusValues()
             _liveDockLockStatusValues.value = cachedDockLockStatusValues
         } catch (e: Exception) {
-            Log.w("BadgerService", "refreshVoiceData error: ${e.message}")
+            RemoteLogger.w("BadgerService", "refreshVoiceData error: ${e.message}")
         }
     }
 
@@ -840,7 +840,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                         val currSet = updated.map { it.truckNumber }.toSet()
                         knownStatuses.keys.filter { it !in currSet }.forEach { knownStatuses.remove(it) }
                         WearBridgePhone.pushTrucks(cachedTrucks)
-                    } catch (e: Exception) { Log.e("BadgerService", "Truck refresh: ${e.message}") }
+                    } catch (e: Exception) { RemoteLogger.e("BadgerService", "Truck refresh: ${e.message}") }
                 }.launchIn(this)
 
                 // Keep cachedStatuses current so new custom statuses are announced immediately
@@ -974,7 +974,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     try {
                         cachedTrucks = BadgerRepo.getLiveMovement().also { list -> list.forEach { knownStatuses[it.truckNumber] = it.statusName } }
                         cachedDoors  = BadgerRepo.getLoadingDoors().also  { list -> list.forEach { knownDoorStatus[it.doorName]  = it.doorStatus } }
-                    } catch (e: Exception) { Log.w("BadgerService", "Heartbeat poll: ${e.message}") }
+                    } catch (e: Exception) { RemoteLogger.w("BadgerService", "Heartbeat poll: ${e.message}") }
                 }
 
             } catch (e: Exception) {

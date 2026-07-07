@@ -48,8 +48,13 @@ import com.badger.trucks.ui.theme.*
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.PostgresAction
 import com.badger.trucks.util.RemoteLogger
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.badger.trucks.util.safeLaunch
 
 data class DoorInfo(
@@ -147,18 +152,41 @@ fun MovementScreen() {
         }
     }
 
-    // Initial load + screen-level realtime for printroom (not covered by BadgerService)
+    // Reload whenever the app returns to the foreground — printroom/staging import
+    // happens while the app is backgrounded, and without this the truck→door mapping
+    // stays stale and every truck gets filtered out ("0 trucks" with data in the DB).
+    // Also covers the initial load: LaunchedEffect runs on first composition too.
+    val resumeTick by com.badger.trucks.MainActivity.resumeTick.collectAsState()
+    LaunchedEffect(resumeTick) { loadData() }
+
+    // Screen-level realtime for printroom (not covered by BadgerService).
+    // The flow must be registered with launchIn BEFORE subscribe() — a bare collect{}
+    // suspends forever so subscribe() was never reached and this channel never
+    // received a single event. Torn down when the screen leaves composition.
     LaunchedEffect(Unit) {
-        loadData()
+        var channel: io.github.jan.supabase.realtime.RealtimeChannel? = null
         try {
-            val channel = BadgerRepo.realtimeChannel("movement-screen-printroom-${System.currentTimeMillis()}")
+            channel = BadgerRepo.realtimeChannel("movement-screen-printroom-${System.currentTimeMillis()}")
             channel.postgresChangeFlow<PostgresAction>("public") { table = "printroom_entries" }
-                .collect { scope.safeLaunch("MovementScreen") {
+                .onEach { scope.safeLaunch("MovementScreen") {
                     printroom = BadgerRepo.getPrintroomEntries()
                     staging   = BadgerRepo.getStagingDoors()
                 }}
+                .launchIn(this)
             channel.subscribe()
-        } catch (e: Exception) { e.printStackTrace() }
+            awaitCancellation()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            channel?.let { ch ->
+                withContext(NonCancellable) {
+                    try { ch.unsubscribe() } catch (_: Exception) {}
+                    try { BadgerRepo.removeChannel(ch) } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     // Polling loop removed: service StateFlow (liveTrucks/liveDoors) provides

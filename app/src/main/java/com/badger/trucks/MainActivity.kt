@@ -59,10 +59,17 @@ import com.badger.trucks.updater.AppUpdater
 import com.badger.trucks.util.RemoteLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
+
+    companion object {
+        // Bumped on every onResume — screens observe this to refetch data when the
+        // app returns to the foreground (fixes stale printroom/trucks after backgrounding)
+        val resumeTick = MutableStateFlow(0)
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -87,6 +94,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumeTick.value++
         checkForUpdate()
         updateCheckJob?.cancel()
         updateCheckJob = lifecycleScope.launch {
