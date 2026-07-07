@@ -320,6 +320,26 @@ fun MainScreen(
                     }
                 })
         }
+
+        // Version footer: installed + latest available
+        item {
+            var latest by remember { mutableStateOf<Int?>(null) }
+            LaunchedEffect(Unit) {
+                latest = try {
+                    com.badger.wear.updater.WearUpdater.checkForUpdate(0)?.latestVersion
+                } catch (e: Exception) { null }
+            }
+            val installed = BuildConfig.VERSION_CODE
+            val label = when {
+                latest == null            -> "v$installed"
+                latest!! <= installed     -> "v$installed • up to date"
+                else                      -> "v$installed • v${latest} available"
+            }
+            Text(
+                label, color = Color(0xFF666666), fontSize = 9.sp, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            )
+        }
     }
 }
 

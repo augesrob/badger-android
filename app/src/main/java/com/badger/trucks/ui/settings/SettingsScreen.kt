@@ -217,6 +217,53 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
             }
         }
 
+        // ── About ─────────────────────────────────────────────────────────────
+        Spacer(Modifier.height(20.dp))
+        SectionLabel("About")
+        Spacer(Modifier.height(4.dp))
+
+        var latestVersion by remember { mutableStateOf<Int?>(null) }
+        var latestFailed by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            try {
+                // checkForUpdate(0) always returns the newest release info
+                val info = com.badger.trucks.updater.AppUpdater.checkForUpdate(0)
+                if (info != null) latestVersion = info.latestVersion else latestFailed = true
+            } catch (e: Exception) {
+                latestFailed = true
+            }
+        }
+        val installedVersion = com.badger.trucks.BuildConfig.VERSION_CODE
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141414), RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Installed version", color = MutedText, fontSize = 12.sp)
+                Text("v$installedVersion", color = LightText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Latest release", color = MutedText, fontSize = 12.sp)
+                when {
+                    latestVersion != null -> Text("v$latestVersion", color = LightText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    latestFailed          -> Text("unavailable", color = MutedText, fontSize = 12.sp)
+                    else                  -> Text("checking…", color = MutedText, fontSize = 12.sp)
+                }
+            }
+            val lv = latestVersion
+            if (lv != null) {
+                Spacer(Modifier.height(8.dp))
+                if (lv <= installedVersion) {
+                    Text("✅ Up to date", color = Color(0xFF22C55E), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                } else {
+                    Text("⬆️ v$lv available — reopen the app to auto-update", color = Amber500, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
     }
 }
