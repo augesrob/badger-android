@@ -321,9 +321,11 @@ fun MainScreen(
                 })
         }
 
-        // Version footer: installed + latest available
+        // Version footer: installed + latest available (+ manual update button)
         item {
+            val context = androidx.compose.ui.platform.LocalContext.current
             var latest by remember { mutableStateOf<Int?>(null) }
+            var updateStarted by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 latest = try {
                     com.badger.wear.updater.WearUpdater.checkForUpdate(0)?.latestVersion
@@ -335,10 +337,35 @@ fun MainScreen(
                 latest!! <= installed     -> "v$installed • up to date"
                 else                      -> "v$installed • v${latest} available"
             }
-            Text(
-                label, color = Color(0xFF666666), fontSize = 9.sp, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    label, color = Color(0xFF666666), fontSize = 9.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
+                val lv = latest
+                if (lv != null && lv > installed) {
+                    Spacer(Modifier.height(4.dp))
+                    Chip(
+                        onClick = {
+                            if (!updateStarted) {
+                                updateStarted = true
+                                context.startService(Intent(context, WearService::class.java).apply {
+                                    action = WearService.ACTION_FORCE_UPDATE
+                                })
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ChipDefaults.chipColors(backgroundColor = Color(0xFF14532D)),
+                        label = {
+                            Text(
+                                if (updateStarted) "Updating… keep app open" else "⬇ Update to v$lv",
+                                color = Color(0xFF22C55E), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
+                    )
+                }
+            }
         }
     }
 }

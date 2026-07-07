@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.launch
 import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.UserProfile
 import com.badger.trucks.service.BadgerService
@@ -222,17 +223,19 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
         SectionLabel("About")
         Spacer(Modifier.height(4.dp))
 
-        var latestVersion by remember { mutableStateOf<Int?>(null) }
+        var updateInfo by remember { mutableStateOf<com.badger.trucks.updater.UpdateInfo?>(null) }
         var latestFailed by remember { mutableStateOf(false) }
+        var updateStarted by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             try {
                 // checkForUpdate(0) always returns the newest release info
                 val info = com.badger.trucks.updater.AppUpdater.checkForUpdate(0)
-                if (info != null) latestVersion = info.latestVersion else latestFailed = true
+                if (info != null) updateInfo = info else latestFailed = true
             } catch (e: Exception) {
                 latestFailed = true
             }
         }
+        val latestVersion = updateInfo?.latestVersion
         val installedVersion = com.badger.trucks.BuildConfig.VERSION_CODE
         Column(
             modifier = Modifier
@@ -259,7 +262,28 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
                 if (lv <= installedVersion) {
                     Text("✅ Up to date", color = Color(0xFF22C55E), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 } else {
-                    Text("⬆️ v$lv available — reopen the app to auto-update", color = Amber500, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("⬆️ v$lv available", color = Amber500, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            val info = updateInfo ?: return@Button
+                            if (!updateStarted) {
+                                updateStarted = true
+                                // Detached scope: survives leaving this screen mid-download
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                    com.badger.trucks.updater.AppUpdater.downloadAndInstall(context, info) { }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF14532D)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            if (updateStarted) "Downloading… you'll be prompted to install" else "⬇  Update to v$lv now",
+                            color = Color(0xFF22C55E), fontSize = 13.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

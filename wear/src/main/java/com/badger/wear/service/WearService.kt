@@ -54,6 +54,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         const val ACTION_PTT_START      = "com.badger.wear.PTT_START"
         const val ACTION_PTT_STOP       = "com.badger.wear.PTT_STOP"
         const val ACTION_STATUS_CHANGE  = "com.badger.wear.STATUS_CHANGE"
+        const val ACTION_FORCE_UPDATE   = "com.badger.wear.FORCE_UPDATE"
         const val ACTION_DOOR_CHANGE    = "com.badger.wear.DOOR_CHANGE"
 
         var isRunning = false
@@ -127,6 +128,10 @@ class WearService : Service(), TextToSpeech.OnInitListener {
             ACTION_STOP -> stopClean()
             ACTION_PTT_START -> startPtt()
             ACTION_PTT_STOP  -> stopPtt()
+            ACTION_FORCE_UPDATE -> {
+                WearLogger.i("WearService", "FORCE_UPDATE requested from UI")
+                scope.launch { checkForUpdate() }
+            }
             ACTION_STATUS_CHANGE -> {
                 WearLogger.i("WearService", "STATUS_CHANGE received")
                 val truckNumber = intent.getStringExtra("truckNumber") ?: return START_STICKY

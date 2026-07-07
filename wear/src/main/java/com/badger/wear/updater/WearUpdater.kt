@@ -103,30 +103,52 @@ object WearUpdater {
             val downloadId = dm.enqueue(request)
             WearLogger.i("WearUpdater", "DownloadManager enqueued id=$downloadId")
 
-            var done     = false
-            var attempts = 0
-            while (!done && attempts < 120) {
+            var done       = false
+            var attempts   = 0
+            var lastStatus = -1
+            var totalBytes = -1L
+            while (!done && attempts < 300) {  // up to 10 min
                 delay(2000)
                 attempts++
+                var status = -1
+                var gotBytes = -1L
                 dm.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
                     if (cursor.moveToFirst()) {
-                        val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
-                        when (status) {
-                            DownloadManager.STATUS_SUCCESSFUL -> {
-                                done = true
-                                WearLogger.i("WearUpdater", "Download complete — installing")
-                                withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
-                            }
-                            DownloadManager.STATUS_FAILED -> {
-                                done = true
-                                val reason = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_REASON))
-                                WearLogger.e("WearUpdater", "Download failed reason=$reason")
-                            }
+                        status   = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                        gotBytes = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val tot  = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        if (tot > 0) totalBytes = tot
+                        if (status == DownloadManager.STATUS_FAILED || status == DownloadManager.STATUS_PAUSED) {
+                            val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                            if (status != lastStatus) WearLogger.w("WearUpdater", "Download status=$status reason=$reason")
+                        }
+                    } else {
+                        WearLogger.w("WearUpdater", "Download id=$downloadId vanished from DownloadManager")
+                    }
+                }
+                if (status != lastStatus) {
+                    WearLogger.i("WearUpdater", "Download status=$status ($gotBytes/$totalBytes bytes)")
+                    lastStatus = status
+                }
+                when (status) {
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        done = true
+                        WearLogger.i("WearUpdater", "Download complete — installing")
+                        withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
+                    }
+                    DownloadManager.STATUS_FAILED -> done = true
+                    else -> {
+                        // Fallback: DownloadManager status queries are flaky on Wear.
+                        // If the file is fully written, install regardless of reported status.
+                        if (totalBytes > 0 && destFile.exists() && destFile.length() >= totalBytes) {
+                            done = true
+                            WearLogger.i("WearUpdater", "File complete (${destFile.length()} bytes) despite status=$status — installing")
+                            withContext(Dispatchers.Main) { installApkSilent(context, destFile) }
                         }
                     }
                 }
             }
-            if (!done) WearLogger.w("WearUpdater", "Download timed out")
+            if (!done) WearLogger.w("WearUpdater", "Download timed out (last status=$lastStatus, file=${destFile.length()}/$totalBytes)")
         } catch (e: Exception) {
             WearLogger.e("WearUpdater", "Download/install failed: ${e.message}")
             onProgress("Update failed: ${e.message}")
