@@ -1,10 +1,17 @@
 package com.badger.wear.service
 
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
+import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 import com.badger.wear.WearApp
+import com.badger.wear.status.BadgerComplicationService
+import com.badger.wear.status.StatusPopupActivity
+import com.badger.wear.status.StatusStore
 import com.badger.wear.util.WearLogger
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
@@ -47,7 +54,17 @@ class WearMessageListenerService : WearableListenerService(), TextToSpeech.OnIni
 
         WearLogger.i("WearMsgListener", "Received: $payload")
 
-        // Show notification on watch
+        // Persist for the watch-face complication and refresh it
+        StatusStore.save(this, title, body)
+        try {
+            ComplicationDataSourceUpdateRequester.create(
+                this, ComponentName(this, BadgerComplicationService::class.java),
+            ).requestUpdateAll()
+        } catch (e: Exception) {
+            WearLogger.w("WearMsgListener", "Complication update failed: ${e.message}")
+        }
+
+        // Show notification with full-screen intent -- pops the status card over the watch face
         showNotification(title, body)
 
         // Speak via TTS
@@ -88,6 +105,18 @@ class WearMessageListenerService : WearableListenerService(), TextToSpeech.OnIni
     private fun showNotification(title: String, body: String) {
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            // Full-screen intent: when the screen is off/ambient the status card
+            // appears directly over the watch face (same mechanism alarms use).
+            val popup = PendingIntent.getActivity(
+                this,
+                (title + body).hashCode(),
+                Intent(this, StatusPopupActivity::class.java).apply {
+                    putExtra(StatusPopupActivity.EXTRA_TITLE, title)
+                    putExtra(StatusPopupActivity.EXTRA_BODY, body)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
             nm.notify(
                 (title + body).hashCode(),
                 NotificationCompat.Builder(this, WearApp.CHANNEL_ALERTS)
@@ -95,6 +124,8 @@ class WearMessageListenerService : WearableListenerService(), TextToSpeech.OnIni
                     .setContentText(body)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setFullScreenIntent(popup, true)
                     .setAutoCancel(true)
                     .build()
             )

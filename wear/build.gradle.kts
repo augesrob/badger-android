@@ -66,6 +66,7 @@ dependencies {
     implementation("androidx.wear.compose:compose-foundation:1.3.1")
     implementation("androidx.wear.compose:compose-navigation:1.3.1")
     implementation("androidx.wear.watchface:watchface-complications-data:1.2.1")
+    implementation("androidx.wear.watchface:watchface-complications-data-source:1.2.1")
 
     // Wearable Data Layer (phone <-> watch bridge)
     implementation("com.google.android.gms:play-services-wearable:18.1.0")
