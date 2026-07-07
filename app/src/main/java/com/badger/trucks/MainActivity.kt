@@ -65,12 +65,6 @@ import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
-    companion object {
-        // Bumped on every onResume — screens observe this to refetch data when the
-        // app returns to the foreground (fixes stale printroom/trucks after backgrounding)
-        val resumeTick = MutableStateFlow(0)
-    }
-
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -202,6 +196,10 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         var pendingUpdate: com.badger.trucks.updater.UpdateInfo? by mutableStateOf(null)
+
+        // Bumped on every onResume — screens observe this to refetch data when the
+        // app returns to the foreground (fixes stale printroom/trucks after backgrounding)
+        val resumeTick = MutableStateFlow(0)
     }
 }
 
