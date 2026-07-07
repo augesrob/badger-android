@@ -112,6 +112,14 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         WearLogger.init(this)
         WearLogger.i("WearService", "Service started v${BuildConfig.VERSION_CODE}")
         startRealtime()
+        // Periodic update re-check: long-running watches shouldn't need a reboot
+        // to notice a new release. Service-level scope survives realtime restarts.
+        scope.launch {
+            while (true) {
+                delay(12 * 60 * 60 * 1000L) // every 12 hours
+                checkForUpdate()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
