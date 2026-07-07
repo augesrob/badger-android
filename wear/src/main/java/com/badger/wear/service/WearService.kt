@@ -434,11 +434,39 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     // ── Notifications ─────────────────────────────────────────────────────────
 
     private fun postAlert(title: String, body: String) {
+        // Strip emoji prefix for the popup/complication text
+        val cleanTitle = title.replace(Regex("^[^A-Za-z0-9]+"), "").trim()
+
+        // Persist for the watch-face complication and refresh it
+        com.badger.wear.status.StatusStore.save(this, cleanTitle, body)
+        try {
+            androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester.create(
+                this, android.content.ComponentName(this, com.badger.wear.status.BadgerComplicationService::class.java),
+            ).requestUpdateAll()
+        } catch (e: Exception) {
+            WearLogger.w("WearService", "Complication update failed: ${e.message}")
+        }
+
+        // Full-screen intent -- pops the status card over the watch face (alarm mechanism)
+        val popup = PendingIntent.getActivity(
+            this,
+            (title + body).hashCode(),
+            Intent(this, com.badger.wear.status.StatusPopupActivity::class.java).apply {
+                putExtra(com.badger.wear.status.StatusPopupActivity.EXTRA_TITLE, cleanTitle)
+                putExtra(com.badger.wear.status.StatusPopupActivity.EXTRA_BODY, body)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(title.hashCode(), NotificationCompat.Builder(this, WearApp.CHANNEL_ALERTS)
             .setContentTitle(title).setContentText(body)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build())
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setFullScreenIntent(popup, true)
+            .setAutoCancel(true).build())
     }
 
     private fun buildNotification(status: String): Notification {
