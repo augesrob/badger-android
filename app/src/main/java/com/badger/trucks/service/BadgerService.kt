@@ -40,7 +40,6 @@ import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -123,7 +122,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         CoroutineExceptionHandler { _, e ->
             if (e !is CancellationException) {
                 RemoteLogger.e("BadgerService", "Unhandled coroutine: ${e::class.simpleName}: ${e.message}")
-                realtimeRestarting.set(false)
                 realtimeNextRetryMs = 0L
             }
         }
@@ -141,8 +139,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private var chatRealtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
     private var realtimeSyncJob: Job? = null
     private val realtimeMutex      = Mutex()
-    private val realtimeRestarting = AtomicBoolean(false)
-    @Volatile private var realtimeRestartStartedAt = 0L  // epoch ms when restart lock acquired (stuck-lock watchdog)
+    private val realtimeGeneration = java.util.concurrent.atomic.AtomicLong(0)  // each restart supersedes all older ones
     private var realtimeRetryCount = 0
     private var realtimeNextRetryMs = 0L  // epoch ms � 0 means "retry immediately"
     private var wakeLock: PowerManager.WakeLock? = null
@@ -750,21 +747,19 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             RemoteLogger.w("BadgerService", "startRealtimeSync: in backoff for ${(realtimeNextRetryMs - now) / 1000}s more � skipping")
             return
         }
-        if (!realtimeRestarting.compareAndSet(false, true)) {
-            val heldMs = System.currentTimeMillis() - realtimeRestartStartedAt
-            if (heldMs < 90_000) {
-                RemoteLogger.w("BadgerService", "startRealtimeSync skipped -- already restarting (${heldMs / 1000}s)")
-                return
-            }
-            // Stuck-lock watchdog: a previous restart acquired the lock but never released it
-            // (e.g. cancelled mid-setup). Reclaim ownership so realtime can recover instead of
-            // deadlocking on "already restarting" forever.
-            RemoteLogger.e("BadgerService", "startRealtimeSync: restart lock stuck ${heldMs / 1000}s -- forcing reclaim")
-        }
-        realtimeRestartStartedAt = System.currentTimeMillis()
-        realtimeSyncJob?.cancel()
+        // Generation-based restart: each call supersedes all older restarts.
+        // No lock flag to acquire means nothing can ever be left stuck held (the
+        // old overnight deadlock) and no release race can free a lock that a
+        // newer restart owns (the v196 total-outage regression).
+        val myGen = realtimeGeneration.incrementAndGet()
+        val previousJob = realtimeSyncJob
         realtimeSyncJob = scope.launch {
+            // Deterministic handoff: wait for the superseded job to fully finish
+            // (its finally blocks release realtimeMutex) before setting up.
+            previousJob?.cancelAndJoin()
+            if (realtimeGeneration.get() != myGen) return@launch  // superseded
             realtimeMutex.withLock {
+            if (realtimeGeneration.get() != myGen) return@launch  // superseded
             try {
                 val oldMain = realtimeChannel
                 val oldChat = chatRealtimeChannel
@@ -778,7 +773,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 if (oldMain != null) { try { oldMain.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldMain) } catch (_: Exception) {} }
                 if (oldChat != null) { try { oldChat.unsubscribe() } catch (_: Exception) {}; try { BadgerRepo.removeChannel(oldChat) } catch (_: Exception) {} }
                 delay(500) // let supabase-kt internal state settle before registering new flows
-                // realtimeRestarting stays true until subscribe() succeeds to block concurrent setup attempts
+                // Generation checked above -- only the newest restart reaches this point
 
                 BadgerRepo.getLiveMovement().forEach { knownStatuses[it.truckNumber] = it.statusName }
                 BadgerRepo.getLoadingDoors().forEach { knownDoorStatus[it.doorName]  = it.doorStatus }
@@ -932,7 +927,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 if (channel.status.value.name != "SUBSCRIBED") {
                     throw Exception("channel.subscribe timed out after 45s (status=${channel.status.value.name})")
                 }
-                realtimeRestarting.set(false)  // setup complete -- allow reconnects from network/doze callbacks
                 realtimeRetryCount = 0          // reset backoff counter on successful connect
                 realtimeNextRetryMs = 0L
                 WearBridgePhone.pushTrucks(cachedTrucks)
@@ -984,14 +978,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
 
             } catch (e: Exception) {
-                if (e is CancellationException) {
-                    // Release the lock UNLESS a newer restart job has already replaced us
-                    // (line above reassigns realtimeSyncJob before cancelling the old one).
-                    // Holding it on external cancellation is what deadlocked realtime forever.
-                    if (realtimeSyncJob == coroutineContext[Job]) realtimeRestarting.set(false)
-                    return@launch
-                }
-                // intentionally cancelled � don't retry, don't touch realtimeRestarting
+                // Superseded by a newer restart or service stopping -- rethrow so the
+                // job cancels normally. Nothing to release: the generation moved on.
+                if (e is CancellationException) throw e
                 realtimeRetryCount++
                 // Exponential backoff: 10s, 20s, 40s, 80s, cap at 120s
                 // After 10 consecutive failures take a 5-minute pause to avoid log spam
@@ -1003,7 +992,6 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                     else -> minOf(10_000L * (1L shl (realtimeRetryCount - 1).coerceAtMost(3)), 120_000L)
                 }
                 realtimeNextRetryMs = System.currentTimeMillis() + backoffMs
-                realtimeRestarting.set(false)
                 RemoteLogger.e("BadgerService", "Realtime setup error: ${e.message} (retry #$realtimeRetryCount in ${backoffMs/1000}s)")
                 delay(backoffMs)
                 realtimeNextRetryMs = 0L
