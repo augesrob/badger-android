@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
+// OTA end-to-end test vehicle: v214 exists to verify the button-driven update flow
 private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/augesrob/badger-android/releases?per_page=50"
 private const val VERSION_CHECK_URL   = "https://badger.augesrob.net/api/version-wear"
 
