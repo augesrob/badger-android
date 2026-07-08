@@ -337,28 +337,47 @@ fun MainScreen(
                 latest!! <= installed     -> "v$installed • up to date"
                 else                      -> "v$installed • v${latest} available"
             }
+            val downloadPercent by WearService.updateProgress.collectAsState()
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     label, color = Color(0xFF666666), fontSize = 9.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
                 val lv = latest
-                if (lv != null && lv > installed) {
+                val pct = downloadPercent
+                if (pct != null) {
+                    // Download in progress — show a live progress bar instead of the chip
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        Modifier.fillMaxWidth().height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)).background(Color(0xFF333333))
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth(pct / 100f).fillMaxHeight()
+                                .background(Color(0xFF22C55E))
+                        )
+                    }
+                    Text(
+                        "Downloading update… $pct%",
+                        color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    )
+                } else if (lv != null && lv > installed) {
                     Spacer(Modifier.height(4.dp))
                     Chip(
                         onClick = {
-                            if (!updateStarted) {
-                                updateStarted = true
-                                context.startService(Intent(context, WearService::class.java).apply {
-                                    action = WearService.ACTION_FORCE_UPDATE
-                                })
-                            }
+                            // Always send the action: the service either re-launches a
+                            // pending install dialog or starts/ignores per its own guard
+                            updateStarted = true
+                            context.startService(Intent(context, WearService::class.java).apply {
+                                action = WearService.ACTION_FORCE_UPDATE
+                            })
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ChipDefaults.chipColors(backgroundColor = Color(0xFF14532D)),
                         label = {
                             Text(
-                                if (updateStarted) "Updating… keep app open" else "⬇ Update to v$lv",
+                                if (updateStarted) "Updating… tap again if no dialog" else "⬇ Update to v$lv",
                                 color = Color(0xFF22C55E), fontSize = 11.sp, fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                             )

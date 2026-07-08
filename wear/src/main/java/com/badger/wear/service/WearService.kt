@@ -68,6 +68,9 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         private val _pttActive    = MutableStateFlow(false)
         private val _doorStatuses    = MutableStateFlow<List<String>>(emptyList())
         private val _printroom        = MutableStateFlow<List<WearPrintroomEntry>>(emptyList())
+        // Download percent (0-100) while a self-update download runs, null when idle —
+        // drives the progress bar in the app footer
+        private val _updateProgress   = MutableStateFlow<Int?>(null)
 
         val trucks:       StateFlow<List<WearTruck>>  = _trucks.asStateFlow()
         val doors:        StateFlow<List<WearDoor>>   = _doors.asStateFlow()
@@ -75,6 +78,7 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         val pttActive:    StateFlow<Boolean>          = _pttActive.asStateFlow()
         val doorStatuses: StateFlow<List<String>>     = _doorStatuses.asStateFlow()
         val printroom:    StateFlow<List<WearPrintroomEntry>> = _printroom.asStateFlow()
+        val updateProgress: StateFlow<Int?>                   = _updateProgress.asStateFlow()
     }
 
     // Single supervisor scope — wakelock keeps it alive through downloads
@@ -569,12 +573,19 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         }
         updateInProgress = true
         try {
+            // A committed install may still be waiting for its confirmation dialog —
+            // re-launch it instead of re-downloading (the dialog is easy to miss)
+            if (com.badger.wear.updater.PendingInstallStore.relaunch(this)) return
+
             val update = WearUpdater.checkForUpdate(BuildConfig.VERSION_CODE) ?: return
             WearLogger.i("WearService", "Update found: ${update.tagName} — auto-downloading")
             updateNotification("Badger Watch — Updating ${update.tagName}...")
-            WearUpdater.downloadAndInstall(this, update) { msg -> WearLogger.i("WearService", "Update: $msg") }
+            _updateProgress.value = 0
+            WearUpdater.downloadAndInstall(this, update,
+                onProgress = { msg -> WearLogger.i("WearService", "Update: $msg") },
+                onPercent  = { p -> _updateProgress.value = p })
         } catch (e: Exception) { WearLogger.w("WearService", "Update check failed: ${e.message}") }
-        finally { updateInProgress = false }
+        finally { updateInProgress = false; _updateProgress.value = null }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────

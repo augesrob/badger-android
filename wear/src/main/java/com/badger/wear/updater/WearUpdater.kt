@@ -85,7 +85,8 @@ object WearUpdater {
     suspend fun downloadAndInstall(
         context: Context,
         info: WearUpdateInfo,
-        onProgress: (String) -> Unit
+        onProgress: (String) -> Unit,
+        onPercent: ((Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         try {
             onProgress("Downloading ${info.tagName}...")
@@ -134,6 +135,9 @@ object WearUpdater {
                 if (status != lastStatus) {
                     WearLogger.i("WearUpdater", "Download status=$status ($gotBytes/$totalBytes bytes)")
                     lastStatus = status
+                }
+                if (totalBytes > 0 && gotBytes >= 0) {
+                    onPercent?.invoke(((gotBytes * 100) / totalBytes).toInt().coerceIn(0, 100))
                 }
                 when (status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {

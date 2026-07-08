@@ -27,6 +27,9 @@ class InstallReceiver : BroadcastReceiver() {
                     WearLogger.e("InstallReceiver", "PENDING_USER_ACTION without confirm intent")
                     return
                 }
+                // Keep the intent so a missed/dismissed dialog can be re-launched from
+                // the Update chip or on service start instead of silently dead-ending
+                PendingInstallStore.confirmIntent = confirm
                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 try {
                     context.startActivity(confirm)
@@ -35,10 +38,14 @@ class InstallReceiver : BroadcastReceiver() {
                     WearLogger.e("InstallReceiver", "Failed to launch confirm: ${e.message}")
                 }
             }
-            PackageInstaller.STATUS_SUCCESS ->
+            PackageInstaller.STATUS_SUCCESS -> {
+                PendingInstallStore.confirmIntent = null
                 WearLogger.i("InstallReceiver", "Update installed successfully")
-            else ->
+            }
+            else -> {
+                PendingInstallStore.confirmIntent = null
                 WearLogger.w("InstallReceiver", "Install status=$status msg=${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)}")
+            }
         }
     }
 }
