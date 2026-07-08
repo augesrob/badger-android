@@ -12,6 +12,9 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import com.badger.wear.BuildConfig
@@ -82,6 +85,15 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var ttsFullyInitialized = false  // true after onInit + delay
+    private var ttsInitRetries = 0
+    // Latest utterance that failed to queue — replayed after engine re-init so a dead
+    // engine doesn't silently eat announcements (speak()'s result was ignored before)
+    private var pendingTtsText: String? = null
+    private val vibrator: Vibrator by lazy {
+        if (Build.VERSION.SDK_INT >= 31)
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        else @Suppress("DEPRECATION") (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
+    }
     // Persisted so "Badger watch active" only fires once per app install, not every service restart
     private val ttsSpokenWelcome get() = getSharedPreferences("badger_wear", Context.MODE_PRIVATE).getBoolean("tts_welcomed", false)
     private fun markTtsWelcomeDone() = getSharedPreferences("badger_wear", Context.MODE_PRIVATE).edit().putBoolean("tts_welcomed", true).apply()
@@ -417,8 +429,19 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         }
         try {
             val id = "wear_" + System.currentTimeMillis()
-            tts?.speak(text, TextToSpeech.QUEUE_ADD, null, id)
-            WearLogger.i("WearService", "TTS queued: '$text'")
+            val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, null, id)
+            if (result == TextToSpeech.SUCCESS) {
+                WearLogger.i("WearService", "TTS queued: '$text'")
+            } else {
+                // The result was ignored before, so a dead engine logged "queued" while
+                // nothing played (popup showed, no voice). Re-init and replay from onInit.
+                WearLogger.e("WearService", "TTS speak returned $result — reinitializing, queued: '$text'")
+                pendingTtsText = text
+                ttsReady = false
+                ttsFullyInitialized = false
+                try { tts?.shutdown() } catch (_: Exception) {}
+                tts = TextToSpeech(this, this)
+            }
         } catch (e: Exception) {
             WearLogger.e("WearService", "TTS speak error: " + e.message + " — text: '$text'")
         }
@@ -428,19 +451,34 @@ class WearService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.US
             ttsReady = true
+            ttsInitRetries = 0
             WearLogger.i("WearService", "TTS engine initialized, waiting for full initialization...")
             // Some devices (S25 Ultra) need a brief delay after onInit before speaking
             scope.launch {
                 delay(500L)  // 500ms delay for engine to fully warm up
                 ttsFullyInitialized = true
-                if (!ttsSpokenWelcome) { 
+                if (!ttsSpokenWelcome) {
                     markTtsWelcomeDone()
-                    speak("Badger watch active") 
+                    speak("Badger watch active")
                 }
                 WearLogger.i("WearService", "TTS fully ready ✅")
+                // Replay the announcement that was dropped when the old engine died
+                pendingTtsText?.let { pending ->
+                    pendingTtsText = null
+                    speak(pending)
+                }
             }
         } else {
             WearLogger.e("WearService", "TTS init failed: $status")
+            if (ttsInitRetries < 5) {
+                ttsInitRetries++
+                scope.launch {
+                    delay(3000L * ttsInitRetries)
+                    WearLogger.w("WearService", "TTS init retry #$ttsInitRetries")
+                    try { tts?.shutdown() } catch (_: Exception) {}
+                    tts = TextToSpeech(this@WearService, this@WearService)
+                }
+            }
         }
     }
 
@@ -449,6 +487,14 @@ class WearService : Service(), TextToSpeech.OnInitListener {
     private fun postAlert(title: String, body: String) {
         // Strip emoji prefix for the popup/complication text
         val cleanTitle = title.replace(Regex("^[^A-Za-z0-9]+"), "").trim()
+
+        // Haptic buzz (double pulse) — status changes are felt on the wrist even
+        // when TTS fails or the volume is low
+        try {
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 250, 120, 250), -1))
+        } catch (e: Exception) {
+            WearLogger.w("WearService", "Vibrate failed: ${e.message}")
+        }
 
         // Persist for the watch-face complication and refresh it
         com.badger.wear.status.StatusStore.save(this, cleanTitle, body)
