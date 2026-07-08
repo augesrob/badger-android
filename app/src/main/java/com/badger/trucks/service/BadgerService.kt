@@ -133,6 +133,9 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
     private val ttsCallbacks   = mutableMapOf<String, () -> Unit>()
     private var ttsInitRetries = 0
     private var lastSpeakTime  = 0L  // for watchdog
+    // Latest utterance dropped because the engine was dead — replayed after re-init so a
+    // dying engine doesn't silently eat every announcement (it only re-initialized before)
+    private var pendingTtsText: String? = null
 
     // Keep references so we can cleanly unsubscribe on restart
     private var realtimeChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
@@ -425,8 +428,26 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 }
             })
             ttsReady = true
+            ttsInitRetries = 0
             applyVolumeBoost()
-            speak("Badger live monitoring active")
+            RemoteLogger.i("TTS", "Engine initialized OK")
+            val pending = pendingTtsText
+            pendingTtsText = null
+            if (pending != null) speak(pending) else speak("Badger live monitoring active")
+        } else {
+            // Without this branch a single failed init left the phone permanently and
+            // invisibly mute: ttsReady stayed false and speak() dropped every utterance
+            ttsReady = false
+            if (ttsInitRetries < 5) {
+                ttsInitRetries++
+                RemoteLogger.e("TTS", "Engine init FAILED (status=$status) — retry #$ttsInitRetries in ${3 * ttsInitRetries}s")
+                mainHandler.postDelayed({
+                    tts?.shutdown()
+                    tts = TextToSpeech(this, this)
+                }, 3000L * ttsInitRetries)
+            } else {
+                RemoteLogger.e("TTS", "Engine init FAILED (status=$status) — giving up after $ttsInitRetries retries (watchdog will keep trying)")
+            }
         }
     }
 
@@ -619,11 +640,16 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         val ttsOn = NotificationPrefsStore.get(this, NotificationPrefsStore.KEY_CHANNEL_TTS)
-        if (!ttsEnabled || !ttsOn) { onDone?.invoke(); return }
+        if (!ttsEnabled || !ttsOn) {
+            RemoteLogger.i("TTS", "Skipped (ttsEnabled=$ttsEnabled channelPref=$ttsOn): $text")
+            onDone?.invoke(); return
+        }
 
-        // Re-init TTS if engine died (Android reclaims it in background)
+        // Re-init TTS if engine died (Android reclaims it in background).
+        // Queue the text so it plays after re-init instead of being silently dropped.
         if (!ttsReady || tts == null) {
-            Log.w("BadgerService", "TTS not ready, re-initializing for: $text")
+            RemoteLogger.w("TTS", "Engine not ready — re-initializing, queued: $text")
+            pendingTtsText = text
             tts?.shutdown()
             ttsCallbacks.clear()
             ttsReady = false
@@ -646,7 +672,8 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
         WearBridgePhone.pushTts(text)
         val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, ttsParams, uttId)
         if (result != TextToSpeech.SUCCESS) {
-            Log.e("BadgerService", "TTS speak() failed ($result) for: $text � reinitializing")
+            RemoteLogger.e("TTS", "speak() returned $result for: $text — reinitializing, queued")
+            pendingTtsText = text
             ttsCallbacks.remove(uttId)
             abandonAudioFocus()
             // Engine is broken, reinit
@@ -657,6 +684,7 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
             onDone?.invoke()
             return
         }
+        RemoteLogger.i("TTS", "Speaking: $text")
 
         // Failsafe: if TTS doesn't finish within 10s, force stop and release focus
         mainHandler.postDelayed({
