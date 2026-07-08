@@ -557,13 +557,24 @@ class WearService : Service(), TextToSpeech.OnInitListener {
 
     // ── Auto-update ───────────────────────────────────────────────────────────
 
+    // Only one download may run at a time: on 2026-07-08 the service-start auto-check and
+    // an Update-chip tap 3s later both downloaded to the same file, interleaving writes —
+    // the APK validator rejected both and the update had to be retried
+    @Volatile private var updateInProgress = false
+
     private suspend fun checkForUpdate() {
+        if (updateInProgress) {
+            WearLogger.i("WearService", "Update already in progress — ignoring duplicate request")
+            return
+        }
+        updateInProgress = true
         try {
             val update = WearUpdater.checkForUpdate(BuildConfig.VERSION_CODE) ?: return
             WearLogger.i("WearService", "Update found: ${update.tagName} — auto-downloading")
             updateNotification("Badger Watch — Updating ${update.tagName}...")
             WearUpdater.downloadAndInstall(this, update) { msg -> WearLogger.i("WearService", "Update: $msg") }
         } catch (e: Exception) { WearLogger.w("WearService", "Update check failed: ${e.message}") }
+        finally { updateInProgress = false }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────

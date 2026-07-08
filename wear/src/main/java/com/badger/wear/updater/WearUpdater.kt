@@ -90,9 +90,12 @@ object WearUpdater {
         try {
             onProgress("Downloading ${info.tagName}...")
             WearLogger.i("WearUpdater", "Downloading ${info.downloadUrl}")
-            val dm       = context.getSystemService(DownloadManager::class.java)
-            val destFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "badger-wear-update.apk")
-            if (destFile.exists()) destFile.delete()
+            val dm  = context.getSystemService(DownloadManager::class.java)
+            val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            // Unique file per attempt: an orphaned DownloadManager job from a killed service
+            // keeps writing to ITS file instead of interleaving with ours. Sweep stale ones.
+            dir?.listFiles()?.filter { it.name.startsWith("badger-wear-update") }?.forEach { it.delete() }
+            val destFile = File(dir, "badger-wear-update-${System.currentTimeMillis()}.apk")
             val request = DownloadManager.Request(Uri.parse(info.downloadUrl))
                 .setTitle("Badger Watch Update")
                 .setDescription(info.tagName)
