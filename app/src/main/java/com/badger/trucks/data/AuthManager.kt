@@ -43,6 +43,7 @@ object AuthManager {
     sealed class AuthState {
         object Loading   : AuthState()
         object LoggedOut : AuthState()
+        object Locked    : AuthState()   // lockdown active and this account is not allowed
         data class LoggedIn(val profile: UserProfile) : AuthState()
     }
 
@@ -82,6 +83,26 @@ object AuthManager {
     fun canUseTts(): Boolean = canFeature("tts")
 
 
+    // ── Lockdown ──────────────────────────────────────────────────────────────
+    // App is closed pending IT approval — only this account may use it.
+    // To reopen: set LOCKDOWN to false and ship a release.
+    private const val LOCKDOWN = true
+    private const val LOCKDOWN_ALLOWED_EMAIL = "rfa1991@gmail.com"
+    const val LOCKDOWN_MESSAGE = "Closed till further notice"
+
+    /** Sets LoggedIn, unless lockdown blocks this account — then signs out and sets Locked. */
+    private suspend fun applyLoginOrLock(p: UserProfile): Boolean {
+        val email = BadgerApp.supabase.auth.currentUserOrNull()?.email?.trim()?.lowercase()
+        if (LOCKDOWN && email != LOCKDOWN_ALLOWED_EMAIL) {
+            RemoteLogger.w("AuthManager", "LOCKDOWN: blocked ${p.username} ($email) — $LOCKDOWN_MESSAGE")
+            try { BadgerRepo.signOut() } catch (_: Exception) {}
+            _state.value = AuthState.Locked
+            return false
+        }
+        _state.value = AuthState.LoggedIn(p)
+        return true
+    }
+
     // ── Init / session restore ────────────────────────────────────────────────
 
     suspend fun init() {
@@ -93,7 +114,7 @@ object AuthManager {
             if (existingUser != null) {
                 val p = BadgerRepo.getCurrentProfile()
                 if (p != null) {
-                    _state.value = AuthState.LoggedIn(p)
+                    if (!applyLoginOrLock(p)) return
                     RemoteLogger.i("AuthManager", "Session valid (no refresh needed) — ${p.username}")
                     startProfileWatch(p.id)
                     // Refresh in background so next startup is even faster
@@ -110,7 +131,7 @@ object AuthManager {
                 if (user != null) {
                     val p = BadgerRepo.getCurrentProfile()
                     if (p != null) {
-                        _state.value = AuthState.LoggedIn(p)
+                        if (!applyLoginOrLock(p)) return
                         RemoteLogger.i("AuthManager", "Session restored after refresh — ${p.username}")
                         startProfileWatch(p.id)
                         return
@@ -162,7 +183,7 @@ object AuthManager {
             BadgerRepo.signIn(email, password)
             val profile = BadgerRepo.getCurrentProfile()
                 ?: return Result.failure(Exception("Profile not found — contact admin"))
-            _state.value = AuthState.LoggedIn(profile)
+            if (!applyLoginOrLock(profile)) return Result.failure(Exception(LOCKDOWN_MESSAGE))
             RemoteLogger.i("AuthManager", "Sign in OK — ${profile.username} role=${profile.role}")
             startProfileWatch(profile.id)
             Result.success(profile)

@@ -24,6 +24,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.badger.trucks.R
 import com.badger.trucks.MainActivity
 import com.badger.trucks.util.RemoteLogger
+import com.badger.trucks.data.AuthManager
 import com.badger.trucks.data.BadgerRepo
 import com.badger.trucks.data.DoorStatusValue
 import com.badger.trucks.data.DockLockStatusValue
@@ -245,6 +246,18 @@ class BadgerService : Service(), TextToSpeech.OnInitListener {
                 RemoteLogger.e("BadgerService", "FGS start failed: ${e2.message}")
                 stopSelf()
                 return
+            }
+        }
+
+        // Lockdown: blocked accounts must not get realtime data/TTS/notifications —
+        // stop the whole service when AuthManager resolves to Locked. Covers boot
+        // starts too (BadgerApp.onCreate runs AuthManager.init before/alongside us).
+        scope.launch {
+            AuthManager.state.collect { st ->
+                if (st is AuthManager.AuthState.Locked) {
+                    RemoteLogger.i("BadgerService", "Lockdown active — stopping service")
+                    mainHandler.post { stopSelf() }
+                }
             }
         }
 

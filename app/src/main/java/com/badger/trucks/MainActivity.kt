@@ -211,6 +211,7 @@ fun BadgerAccessApp() {
     when (authState) {
         is AuthManager.AuthState.Loading   -> SplashScreen()
         is AuthManager.AuthState.LoggedOut -> LoginScreen()
+        is AuthManager.AuthState.Locked    -> LockedScreen()
         is AuthManager.AuthState.LoggedIn  -> BadgerAccessMain((authState as AuthManager.AuthState.LoggedIn).profile)
     }
 }
@@ -226,6 +227,31 @@ private fun SplashScreen() {
             )
             Text("Badger Access", color = Amber500, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
             CircularProgressIndicator(color = Amber500, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+@Composable
+private fun LockedScreen() {
+    val context = LocalContext.current
+    // Lockdown: make sure the background service (realtime/TTS/notifications) is
+    // fully stopped for blocked accounts, not just the UI
+    LaunchedEffect(Unit) {
+        context.startService(Intent(context, BadgerService::class.java).apply {
+            action = BadgerService.ACTION_STOP
+        })
+    }
+    Box(Modifier.fillMaxSize().background(DarkBg), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Text("🔒", fontSize = 48.sp)
+            Text(
+                AuthManager.LOCKDOWN_MESSAGE,
+                color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
