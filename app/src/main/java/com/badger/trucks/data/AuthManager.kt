@@ -84,16 +84,21 @@ object AuthManager {
 
 
     // ── Lockdown ──────────────────────────────────────────────────────────────
-    // App is closed pending IT approval — only this account may use it.
+    // App is closed pending IT approval — only these accounts may use it.
     // To reopen: set LOCKDOWN to false and ship a release.
     private const val LOCKDOWN = true
-    private const val LOCKDOWN_ALLOWED_EMAIL = "rfa1991@gmail.com"
+    private val LOCKDOWN_ALLOWED_EMAILS = setOf(
+        "rfa1991@gmail.com",
+        "sam@badgerliquor.com",
+        "felipe@badgerliquor.com",
+        "millerjo1986@gmail.com",
+    )
     const val LOCKDOWN_MESSAGE = "Closed till further notice"
 
     /** Sets LoggedIn, unless lockdown blocks this account — then signs out and sets Locked. */
     private suspend fun applyLoginOrLock(p: UserProfile): Boolean {
         val email = BadgerApp.supabase.auth.currentUserOrNull()?.email?.trim()?.lowercase()
-        if (LOCKDOWN && email != LOCKDOWN_ALLOWED_EMAIL) {
+        if (LOCKDOWN && email !in LOCKDOWN_ALLOWED_EMAILS) {
             RemoteLogger.w("AuthManager", "LOCKDOWN: blocked ${p.username} ($email) — $LOCKDOWN_MESSAGE")
             try { BadgerRepo.signOut() } catch (_: Exception) {}
             _state.value = AuthState.Locked
