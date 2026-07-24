@@ -236,8 +236,7 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
             }
         }
         val latestVersion = updateInfo?.latestVersion
-        // v1 DEMO: show the user-facing versionName ("1.0") instead of the raw versionCode.
-        val installedVersion = com.badger.trucks.BuildConfig.VERSION_NAME
+        val installedVersion = com.badger.trucks.BuildConfig.VERSION_CODE  // Int, kept for the compare below
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -246,7 +245,8 @@ private fun SettingsMenu(profile: UserProfile, onSelect: (SettingsSub) -> Unit) 
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Installed version", color = MutedText, fontSize = 12.sp)
-                Text("v$installedVersion", color = LightText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                // v1 DEMO: display the user-facing versionName ("1.0"); compare above still uses the Int code.
+                Text("v${com.badger.trucks.BuildConfig.VERSION_NAME}", color = LightText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
