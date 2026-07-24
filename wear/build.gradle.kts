@@ -15,8 +15,9 @@ android {
         applicationId = "com.badger.wear"
         minSdk = 30   // Wear OS 3.0+
         targetSdk = 34
-        versionCode = (System.getenv("VERSION_CODE")?.toIntOrNull()) ?: 1
-        versionName = System.getenv("VERSION_CODE") ?: "1"
+        // v1 DEMO branch: display "1.0"; versionCode pinned high (see app/build.gradle.kts).
+        versionCode = 9999
+        versionName = "1.0"
 
         val localProps = Properties().also { props ->
             val f = rootProject.file("local.properties")

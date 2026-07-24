@@ -16,8 +16,10 @@ android {
         applicationId = "com.badger.access"
         minSdk = 26
         targetSdk = 34
-        versionCode = 216
-        versionName = "216.0"
+        // v1 DEMO branch: display "1.0"; versionCode pinned high so the demo device
+        // is never auto-updated back to the live fleet mid-demo. Do NOT merge to badger-access.
+        versionCode = 9999
+        versionName = "1.0"
 
         // Secrets injected from local.properties (dev) or GitHub Secrets (CI)
         val localProps = Properties().also { props ->

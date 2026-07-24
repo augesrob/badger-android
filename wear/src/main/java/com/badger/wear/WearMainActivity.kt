@@ -331,12 +331,9 @@ fun MainScreen(
                     com.badger.wear.updater.WearUpdater.checkForUpdate(0)?.latestVersion
                 } catch (e: Exception) { null }
             }
-            val installed = BuildConfig.VERSION_CODE
-            val label = when {
-                latest == null            -> "v$installed"
-                latest!! <= installed     -> "v$installed • up to date"
-                else                      -> "v$installed • v${latest} available"
-            }
+            val installed = BuildConfig.VERSION_CODE            // int, kept for the update compare
+            // v1 DEMO: display the versionName ("1.0"); versionCode pinned high so no chip shows.
+            val label = "v${BuildConfig.VERSION_NAME} • up to date"
             val downloadPercent by WearService.updateProgress.collectAsState()
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Text(
